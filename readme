@@ -97,6 +97,14 @@ GET /api/block/
 /status: Retrieve the processing status of a specific block.
 GET /api/error-blocks: Retrieve blocks that encountered errors.
 Note: All list endpoints support pagination using page and limit query parameters.
+GET /api/deploy/:deploy_id/mints
+
+GET /api/deploy/:deploy_id/summary
+Example
+curl "http://localhost:5000/api/deploy/acd5f7ae888e3ea2899533bcd0e91c3b74ca4e27d40ad9a01020ad1c6aa4b5adi0/summary"
+
+
+# Front end node server.js > enjoy
 
 # Database Access Endpoint
 The database (brc420.db) can be accessed directly to query data related to deploys, mints, wallets, and blocks. It provides powerful query capabilities for advanced users needing direct access.
@@ -110,6 +118,7 @@ Retrieve mints for a specific deploy ID:
 
 SELECT * FROM mints WHERE deploy_id = 'YOUR_DEPLOY_ID';
 Database Schema
+
 
 # The indexer uses a SQLite database with the following tables:
 

@@ -170,5 +170,20 @@ router.get('/deploys/with-mints', (req, res) => {
     });
 });
 
+// Endpoint to get all mints for a specific deploy mint ID
+router.get('/deploy-mint/:deploy_mint_id/mints', (req, res) => {
+    const deployMintId = req.params.deploy_mint_id;
+    const { page = 1, limit = 20 } = req.query;
+
+    // SQL query to retrieve all mints associated with the given deploy mint ID
+    const paginatedQuery = paginate("SELECT * FROM mints WHERE deploy_id = ?", [deployMintId], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
 
 module.exports = router;

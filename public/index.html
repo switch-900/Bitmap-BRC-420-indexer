@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploys and Mints</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: black;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 80%;
+            margin: 0 auto;
+            color: white;
+        }
+
+        .deploy-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .deploy {
+            width: calc(25% - 20px);
+            height: 300px;
+            border: 1px solid #2e82b9;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            background-color: #1a1a1a;
+        }
+
+        .deploy iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            overflow: hidden;
+            scroll-behavior: smooth;
+        }
+
+        .deploy .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+        }
+
+        .deploy .mint-counter {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+
+        .search-bar {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .search-bar input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            background-color: #1a1a1a;
+            color: white;
+        }
+
+        .search-bar button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #2e82b9;
+            color: white;
+        }
+
+        .sort-toggle {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .sort-toggle button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #2e82b9;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 16px;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search deploys or mints...">
+            <button onclick="performSearch()">Search</button>
+          
+                <button onclick="toggleSortOrder()">Sort: First/Last</button>
+            
+        </div>
+     
+        <div id="deployContainer" class="deploy-container"></div>
+        <div id="loading" class="loading">Loading...</div>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:5000/api';  // Base URL for API
+        const CONTENT_URL = 'https://ordinals.com';   // Base URL for content
+        let currentPage = 1;
+        let sortOrder = 'desc';  // 'desc' for latest first, 'asc' for oldest first
+        let isLoading = false;
+        let lastQuery = '';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadDeploys();
+            window.addEventListener('scroll', handleScroll);
+        });
+
+        function loadDeploys(query = '') {
+            if (isLoading) return;
+            isLoading = true;
+            lastQuery = query;
+
+            const deployContainer = document.getElementById('deployContainer');
+            const loadingElement = document.getElementById('loading');
+
+            loadingElement.style.display = 'block';
+
+            fetch(`${API_URL}/deploys/with-mints?page=${currentPage}&limit=20&order=${sortOrder}&name=${query}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        loadingElement.textContent = 'No more deploys to load.';
+                        isLoading = false;
+                        return;
+                    }
+
+                    data.forEach(deploy => {
+                        const deployElement = document.createElement('div');
+                        deployElement.className = 'deploy';
+                        deployElement.style.position = 'relative';
+
+                        // Create a loading placeholder or background
+                        deployElement.style.background = 'url("/path/to/loading-placeholder.jpg") center center / cover no-repeat';
+
+                        // Create the iframe with lazy loading
+                        const iframe = document.createElement('iframe');
+                        iframe.setAttribute('loading', 'lazy');
+                        iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                        iframe.frameBorder = '0';
+                        iframe.scrolling = 'no';  // Ensure no scrollbars
+                        iframe.style.overflow = 'hidden';
+
+                        // Create the overlay
+                        const overlay = document.createElement('div');
+                        overlay.className = 'overlay';
+
+                        // Click event to load the deploy details
+                        overlay.onclick = () => loadDeployDetails(deploy.id);
+
+                        // Create the mint counter
+                        const mintCounter = document.createElement('div');
+                        mintCounter.className = 'mint-counter';
+                        mintCounter.textContent = `${deploy.total_mints} / ${deploy.max} mints`;
+
+                        // Append the iframe, mint counter, and overlay to the deploy element
+                        deployElement.appendChild(iframe);
+                        deployElement.appendChild(mintCounter);
+                        deployElement.appendChild(overlay);
+
+                        // Append the deploy element to the container
+                        deployContainer.appendChild(deployElement);
+                    });
+
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                    currentPage++;
+                })
+                .catch(error => {
+                    console.error('Error loading deploys:', error);
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                });
+        }
+
+        function handleScroll() {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            if (scrollTop + clientHeight >= scrollHeight - 5) {
+                loadDeploys(lastQuery);
+            }
+        }
+
+        function toggleSortOrder() {
+            sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            currentPage = 1;
+            document.getElementById('deployContainer').innerHTML = '';
+            loadDeploys(lastQuery);
+        }
+
+        function performSearch() {
+            const query = document.getElementById('searchInput').value;
+            currentPage = 1;
+            document.getElementById('deployContainer').innerHTML = '';
+            loadDeploys(query);
+        }
+
+        function loadDeployDetails(deployId) {
+            window.location.href = `deploy.html?id=${deployId}`;
+        }
+    </script>
+</body>
+</html>

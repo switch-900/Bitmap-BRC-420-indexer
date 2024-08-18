@@ -5,8 +5,11 @@ const routes = require('./routes');
 const winston = require('winston');
 const Joi = require('joi');
 const config = require('./config'); 
+const cors = require('cors');  // Import CORS
 
 const app = express();
+
+app.use(cors());  
 
 // Initialize Winston logger
 const logger = winston.createLogger({

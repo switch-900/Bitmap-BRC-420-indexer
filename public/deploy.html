@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Details</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: black;
+            color: white;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .container {
+            padding: 20px;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+        }
+        .iframe-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            margin-bottom: 20px;
+        }
+        .iframe-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 1px solid #2e82b9;
+            overflow: hidden;
+        }
+        .mints-container {
+            margin-top: 20px;
+            background-color: #333;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 80%;
+            overflow-y: auto;
+            max-height: 400px;
+            margin: 0 auto;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        .mint {
+            border: 1px solid #2e82b9;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            background-color: #1a1a1a;
+        }
+        .mint strong {
+            color: #2e82b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="deployName">Deploy Details</h1>
+        <div id="deployInfo"></div>
+        <div id="deployContent" class="iframe-container">
+            <iframe id="deployIframe" src="" frameborder="0"></iframe>
+        </div>
+        <div class="mints-container" id="mintsContainer"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        const CONTENT_URL = 'https://ordinals.com';
+        const urlParams = new URLSearchParams(window.location.search);
+        const deployId = urlParams.get('id');
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadDeployDetails(deployId);
+        });
+
+        function loadDeployDetails(deployId) {
+            fetch(`${API_URL}/deploy/${deployId}/summary`)
+                .then(response => response.json())
+                .then(deploy => {
+                    document.getElementById('deployName').textContent = deploy.name;
+                    document.getElementById('deployInfo').innerHTML = `
+                        <p><strong>Source ID:</strong> ${deploy.source_id}</p>
+                        <p><strong>Max Mints:</strong> ${deploy.max}</p>
+                        <p><strong>Price:</strong> ${deploy.price}</p>
+                        <p><strong>Deployer Address:</strong> ${deploy.deployer_address}</p>
+                        <p><strong>Block Height:</strong> ${deploy.block_height}</p>
+                        <p><strong>Total Mints:</strong> ${deploy.total_mints}</p>
+                    `;
+
+                    // Load the content in the iframe
+                    document.getElementById('deployIframe').src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                    loadMints(deployId);
+                })
+                .catch(error => console.error('Error loading deploy details:', error));
+        }
+
+        function loadMints(deployId) {
+            fetch(`${API_URL}/deploy/${deployId}/mints`)
+                .then(response => response.json())
+                .then(mints => {
+                    const mintsContainer = document.getElementById('mintsContainer');
+                    mintsContainer.innerHTML = ''; // Clear previous mints
+                    mints.forEach(mint => {
+                        const mintElement = document.createElement('div');
+                        mintElement.className = 'mint';
+                        mintElement.innerHTML = `
+                            <p><strong>Mint ID:</strong> ${mint.id}</p>
+                            <p><strong>Mint Address:</strong> ${mint.mint_address}</p>
+                            <p><strong>Transaction ID:</strong> ${mint.transaction_id}</p>
+                            <p><strong>Block Height:</strong> ${mint.block_height}</p>
+                            <p><strong>Timestamp:</strong> ${new Date(mint.timestamp).toLocaleString()}</p>
+                        `;
+                        mintsContainer.appendChild(mintElement);
+                    });
+                })
+                .catch(error => console.error('Error loading mints:', error));
+        }
+    </script>
+</body>
+</html>
