@@ -50,7 +50,7 @@ SQLite3
 
 # Clone the repository:
 
-git clone https://github.com/Switch900/brc420-indexer.git
+git clone https://github.com/switch-900/brc-420-indexer
 cd brc420-indexer
 
 # Install dependencies:
