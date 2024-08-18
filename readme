@@ -57,9 +57,10 @@ cd brc420-indexer
 
 npm install
  # Set up the database:
+node db/setup.js
 
-node setup.js
 Configuration
+
 Edit the setup.js file to configure the indexer:
 
 javascript
@@ -79,7 +80,7 @@ Usage
 
 # Start the indexer and API server:
 
-node index.js
+npx nodemon index.js
 
 The indexer will start processing blocks from the START_BLOCK defined in the configuration.
 
