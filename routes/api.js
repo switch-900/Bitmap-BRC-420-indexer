@@ -73,7 +73,18 @@ router.get('/deploy/:deploy_id/mints', (req, res) => {
 router.get('/wallet/:inscription_id', (req, res) => {
     const inscriptionId = req.params.inscription_id;
 
-    db.get("SELECT * FROM wallets WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+    // Updated to query deploys, mints, and bitmaps directly
+    const query = `
+        SELECT * FROM (
+            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE id = ?
+            UNION ALL
+            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE id = ?
+            UNION ALL
+            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE inscription_id = ?
+        ) WHERE inscription_id = ?
+    `;
+
+    db.get(query, [inscriptionId, inscriptionId, inscriptionId, inscriptionId], (err, row) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -89,7 +100,15 @@ router.get('/address/:address/inscriptions', (req, res) => {
     const address = req.params.address;
     const { page = 1, limit = 20 } = req.query;
 
-    const paginatedQuery = paginate("SELECT * FROM wallets WHERE address = ?", [address], page, limit);
+    const paginatedQuery = paginate(`
+        SELECT * FROM (
+            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE wallet = ?
+            UNION ALL
+            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE wallet = ?
+            UNION ALL
+            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE wallet = ?
+        ) WHERE address = ?
+    `, [address, address, address, address], page, limit);
 
     db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
         if (err) {
@@ -169,6 +188,84 @@ router.get('/deploys/with-mints', (req, res) => {
         return res.json(rows);
     });
 });
+
+// New endpoint to get bitmap by inscription ID
+router.get('/bitmap/:inscription_id', (req, res) => {
+    const inscriptionId = req.params.inscription_id;
+
+    db.get("SELECT * FROM bitmaps WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Bitmap not found" });
+        }
+        return res.json(row);
+    });
+});
+
+// Endpoint to get bitmaps by bitmap number
+router.get('/bitmaps/number/:bitmap_number', (req, res) => {
+    const bitmapNumber = req.params.bitmap_number;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE bitmap_number = ?", [bitmapNumber], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get all bitmaps for a specific address
+router.get('/address/:address/bitmaps', (req, res) => {
+    const address = req.params.address;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE address = ?", [address], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get a summary of bitmaps (total count, latest bitmap number, etc.)
+router.get('/bitmaps/summary', (req, res) => {
+    db.get(`
+        SELECT 
+            COUNT(*) as total_bitmaps,
+            MAX(bitmap_number) as latest_bitmap_number,
+            MIN(timestamp) as earliest_timestamp,
+            MAX(timestamp) as latest_timestamp
+        FROM bitmaps
+    `, (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(row);
+    });
+});
+
+// New endpoint to get all bitmaps with optional pagination
+router.get('/bitmaps', (req, res) => {
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    db.all("SELECT * FROM bitmaps LIMIT ? OFFSET ?", [limit, offset], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+
+
 
 
 module.exports = router;
