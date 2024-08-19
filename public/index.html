@@ -115,10 +115,24 @@
             font-size: 16px;
             color: white;
         }
+   .navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .navigation a {
+            color: #2e82b9;
+            text-decoration: none;
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="navigation">
+            <a href="index.html">Deploys and Mints</a>
+            <a href="bitmaps.html">Bitmaps</a>
+        </div>
         <div class="search-bar">
             <input type="text" id="searchInput" placeholder="Search deploys or mints...">
             <button onclick="performSearch()">Search</button>

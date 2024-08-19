@@ -56,6 +56,65 @@ function loadDeploys() {
 function loadDeployDetails(deployId) {
     window.location.href = `deploy.html?id=${deployId}`;
 }
+function loadBitmaps(query = '') {
+    if (isLoading) return;
+    isLoading = true;
+    lastQuery = query;
+
+    const bitmapContainer = document.getElementById('bitmapContainer');
+    const loadingElement = document.getElementById('loading');
+
+    loadingElement.style.display = 'block';
+
+
+    fetch(`${API_URL}/bitmaps?page=${currentPage}&limit=20`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+            return response.text(); // Use text() to manually parse JSON
+        })
+        .then(text => {
+            try {
+                const data = JSON.parse(text); // Parse the text to JSON
+                if (data.length === 0) {
+                    loadingElement.textContent = 'No more bitmaps to load.';
+                    isLoading = false;
+                    return;
+                }
+
+                data.forEach(bitmap => {
+                    const bitmapElement = document.createElement('div');
+                    bitmapElement.className = 'bitmap';
+
+                    bitmapElement.innerHTML = `
+                        <div><strong>Bitmap Number:</strong> ${bitmap.bitmap_number}</div>
+                        <div class="bitmap-content"><strong>Content:</strong> ${bitmap.content}</div>
+                        <div><strong>Address:</strong> ${bitmap.address}</div>
+                        <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                        <div><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>
+                    `;
+
+                    // Click event to display the bitmap content in the iframe
+                    bitmapElement.onclick = () => loadBitmapInIframe(bitmap.inscription_id);
+
+                    bitmapContainer.appendChild(bitmapElement);
+                });
+
+                isLoading = false;
+                loadingElement.style.display = 'none';
+                currentPage++;
+            } catch (error) {
+                throw new Error('Failed to parse JSON: ' + error.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading bitmaps:', error);
+            isLoading = false;
+            loadingElement.style.display = 'none';
+        });
+}
+
 
 function performSearch() {
     const query = document.getElementById('searchInput').value;
