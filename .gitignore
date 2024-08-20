@@ -18,7 +18,7 @@ yarn-error.log*
 # Database
 *.sqlite
 *.sqlite3
-db/
+
 
 # Ignore local environment files
 .env.local

@@ -3,7 +3,7 @@ require('dotenv').config();
 module.exports = {
     API_URL: process.env.API_URL,
     API_WALLET_URL: process.env.API_WALLET_URL,
-    START_BLOCK: 792435, // first brc-420 in block 807604 first bitmap in block 792435
+    START_BLOCK: 807604, // first brc-420 in block 807604 first bitmap in block 792435
     RETRY_BLOCK_DELAY: 3,
     DB_PATH: './db/brc420.db',
     PORT: 5000,
