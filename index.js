@@ -1,3 +1,4 @@
+// working 
 const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
 const express = require('express');
@@ -78,7 +79,6 @@ async function validateDeployData(deployData) {
     logger.info('Deploy data validation successful.');
     return true;
 }
-
 // Function to check if the API is available
 async function isApiAvailable() {
     try {
@@ -89,7 +89,6 @@ async function isApiAvailable() {
         return false;
     }
 }
-
 // Function to pause processing until the API is available
 async function waitForApiRecovery() {
     let apiAvailable = false;
@@ -111,7 +110,6 @@ async function waitForApiRecovery() {
 
     logger.info('API is now available. Resuming mint processing.');
 }
-
 // Function to save or update a wallet with Winston logging
 function saveOrUpdateWallet(inscriptionId, address, type) {
     const sqlInsert = `INSERT INTO wallets (inscription_id, address, type, updated_at)
@@ -128,7 +126,6 @@ function saveOrUpdateWallet(inscriptionId, address, type) {
         }
     });
 }
-
 // Function to save mint inscription with Winston logging
 function saveMint(mintData) {
     const { error } = mintSchema.validate(mintData);
@@ -153,7 +150,6 @@ function saveMint(mintData) {
       }
     });
 }
-
 // Function to log block in error table with Winston logging
 function logErrorBlock(blockHeight) {
     const sql = `INSERT OR REPLACE INTO error_blocks (block_height, retry_at)
@@ -168,7 +164,6 @@ function logErrorBlock(blockHeight) {
         }
     });
 }
-
 // Function to retry failed blocks with Winston logging
 async function retryFailedBlocks(currentBlockHeight) {
     const retryBlockHeight = currentBlockHeight - RETRY_BLOCK_DELAY;
@@ -193,7 +188,6 @@ async function retryFailedBlocks(currentBlockHeight) {
         }
     });
 }
-
 // Function to save deploy inscription with Joi validation and Winston logging
 async function saveDeploy(deployData) {
     const { error } = deploySchema.validate(deployData);
@@ -221,7 +215,6 @@ async function saveDeploy(deployData) {
         });
     });
 }
-
 // Function to retrieve a deploy inscription by its ID from the database with Winston logging
 async function getDeployById(deployId) {
     // Check if the deploy inscription is already in the cache
@@ -252,8 +245,6 @@ async function getDeployById(deployId) {
         });
     });
 }
-
-
 // Function to get mint address with Winston logging
 async function getMintAddress(inscriptionId) {
     try {
@@ -275,7 +266,6 @@ async function getMintAddress(inscriptionId) {
         return null;
     }
 }
-
 // Updated function to validate royalty payment with retry mechanism and Winston logging
 async function validateRoyaltyPayment(deployInscription, mintAddress) {
     let retryCount = 0;
@@ -322,12 +312,10 @@ async function validateRoyaltyPayment(deployInscription, mintAddress) {
     await waitForApiRecovery(); // Pause until API is available
     return false;
 }
-
 // Function to convert inscription ID to transaction ID
 function convertInscriptionIdToTxId(inscriptionId) {
     return `${inscriptionId.slice(0, -2)}:${inscriptionId.slice(-1)}`;
 }
-
 // Function to get the deployer's address from the output with Winston logging
 async function getDeployerAddress(inscriptionId) {
     try {
@@ -360,7 +348,6 @@ async function getCurrentMintCount(deployId) {
         });
     });
 }
-
 // Function to validate mint data with enhanced error handling using Joi and Winston logging
 async function validateMintData(mintId, deployInscription, mintAddress, transactionId) {
     try {
@@ -385,7 +372,6 @@ async function validateMintData(mintId, deployInscription, mintAddress, transact
         return false;
     }
 }
-
 // Use validateDeployData in your processInscription function
 async function processInscription(inscriptionId, blockHeight) {
     try {
@@ -478,9 +464,7 @@ async function processInscription(inscriptionId, blockHeight) {
         logErrorBlock(blockHeight);
     }
 }
-
 const cache = {};
-
 // Helper function to get data from the cache
 function getFromCache(key) {
     if (cache[key] && (Date.now() < cache[key].expiry)) {
@@ -499,7 +483,6 @@ function setInCache(key, value, ttl = 60000) { // ttl is time-to-live in ms
 function invalidateCache(key) {
     delete cache[key];
 }
-
 
 async function getMimeType(inscriptionId) {
     // Check if the MIME type is already in the cache
@@ -527,7 +510,6 @@ async function getMimeType(inscriptionId) {
         return null;
     }
 }
-
 
 // Function to process a block with improved pagination and Winston logging
 async function processBlock(blockHeight) {
