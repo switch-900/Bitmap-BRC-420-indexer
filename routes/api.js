@@ -1,8 +1,26 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const router = express.Router();
+const NodeCache = require('node-cache');
+const rateLimit = require('express-rate-limit');
+const { open } = require('sqlite');
 
-const db = new sqlite3.Database('./db/brc420.db');
+const router = express.Router();
+const config = require('../config');
+
+const db = open({
+    filename: config.DB_PATH,
+    driver: sqlite3.Database
+});
+
+const cache = new NodeCache({ stdTTL: config.CACHE_TTL });
+const limiter = rateLimit({
+    windowMs: config.RATE_LIMIT_WINDOW_MS,
+    max: config.RATE_LIMIT_MAX,
+    message: "Too many requests from this IP, please try again later."
+});
+
+// Apply rate limiting to all API routes
+router.use(limiter);
 
 // Helper function for pagination
 function paginate(query, params, page = 1, limit = 20) {
@@ -13,6 +31,20 @@ function paginate(query, params, page = 1, limit = 20) {
     };
 }
 
+// Example: Cache middleware
+async function cacheMiddleware(req, res, next) {
+    const key = req.originalUrl;
+    const cachedResponse = cache.get(key);
+    if (cachedResponse) {
+        return res.json(cachedResponse);
+    }
+    res.sendResponse = res.json;
+    res.json = (body) => {
+        cache.set(key, body);
+        res.sendResponse(body);
+    };
+    next();
+}
 // Endpoint to get deploy inscriptions by ID or name
 router.get('/deploys', (req, res) => {
     const { id, name, page = 1, limit = 20 } = req.query;

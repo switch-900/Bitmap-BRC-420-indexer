@@ -58,30 +58,6 @@ const db = new sqlite3.Database(config.DB_PATH, (err) => {
     }
 });
 
-// Joi schemas for validation
-const deploySchema = Joi.object({
-    p: Joi.string().valid('brc-420').required(),
-    op: Joi.string().valid('deploy').required(),
-    id: Joi.string().required(),
-    name: Joi.string().required(),
-    max: Joi.number().integer().positive().required(),
-    price: Joi.number().precision(8).positive().required(),
-    deployer_address: Joi.string().required(),
-    block_height: Joi.number().integer().positive().required(),
-    timestamp: Joi.date().timestamp().required(),
-    source_id: Joi.string().required()
-});
-
-const mintSchema = Joi.object({
-    id: Joi.string().required(),
-    deploy_id: Joi.string().required(),
-    source_id: Joi.string().required(),
-    mint_address: Joi.string().required(),
-    transaction_id: Joi.string().required(),
-    block_height: Joi.number().integer().positive().required(),
-    timestamp: Joi.date().timestamp().required()
-});
-
 const API_URL = config.API_URL;
 const API_WALLET_URL = config.API_WALLET_URL;
 const RETRY_DELAY_MS = config.RETRY_DELAY;
@@ -104,34 +80,7 @@ async function isApiAvailable(retries = 3) {
     return false;
 }
 
-// Function to save or update a wallet with Winston logging
-function saveOrUpdateWallet(inscriptionId, address, type) {
-    const now = Date.now();
-    let sqlUpdate;
 
-    switch (type) {
-        case 'deploy':
-            sqlUpdate = `UPDATE deploys SET wallet = ?, updated_at = ? WHERE id = ?`;
-            break;
-        case 'mint':
-            sqlUpdate = `UPDATE mints SET wallet = ?, updated_at = ? WHERE id = ?`;
-            break;
-        case 'bitmap':
-            sqlUpdate = `UPDATE bitmaps SET wallet = ?, updated_at = ? WHERE inscription_id = ?`;
-            break;
-        default:
-            logger.error(`Unknown type ${type} for inscription ${inscriptionId}`);
-            return;
-    }
-
-    db.run(sqlUpdate, [address, now, inscriptionId], (err) => {
-        if (err) {
-            logger.error(`Error updating wallet for ${type} ${inscriptionId}:`, { message: err.message });
-        } else {
-            logger.info(`Wallet updated for ${type} ${inscriptionId}, new address ${address}`);
-        }
-    });
-}
 
 // Function to save deploy data with Winston logging
 async function saveDeploy(deployData) {
@@ -161,7 +110,6 @@ async function saveDeploy(deployData) {
                 logger.error('Error saving deploy:', { message: err.message });
                 reject(err);
             } else {
-                logger.info('Deploy saved successfully:', { deployData });
                 resolve(true);
             }
         });
@@ -193,7 +141,6 @@ async function saveMint(mintData) {
                 logger.error('Error saving mint:', { message: err.message });
                 reject(err);
             } else {
-                logger.info('Mint saved successfully:', { mintData });
                 resolve(true);
             }
         });
@@ -208,8 +155,6 @@ function logErrorBlock(blockHeight) {
     db.run(sql, [blockHeight, retryAtBlock], (err) => {
         if (err) {
             logger.error('Error logging error block:', { message: err.message });
-        } else {
-            logger.info(`Block ${blockHeight} logged for retry after ${RETRY_BLOCK_DELAY} blocks.`);
         }
     });
 }
@@ -223,11 +168,6 @@ function getDeployById(deployId) {
                 logger.error(`Error retrieving deploy by ID ${deployId}:`, { message: err.message });
                 reject(err);
             } else {
-                if (row) {
-                    logger.info(`Deploy found for ID ${deployId}:`, { deploy: row });
-                } else {
-                    logger.info(`No deploy found for ID ${deployId}`);
-                }
                 resolve(row);
             }
         });
@@ -238,16 +178,12 @@ function getDeployById(deployId) {
 async function getMintAddress(inscriptionId) {
     try {
         const txId = convertInscriptionIdToTxId(inscriptionId);
-        logger.info(`Fetching output for transaction ID: ${txId}`);
         const outputRes = await axios.get(`${API_URL}/output/${txId}`, {
             headers: { 'Accept': 'application/json' }
         });
-        logger.info(`Output API response:`, { data: outputRes.data });
         if (outputRes.data && outputRes.data.address) {
-            logger.info(`Mint address for ${inscriptionId}: ${outputRes.data.address}`);
             return outputRes.data.address;
         } else {
-            logger.error(`No address found in output for inscription ${inscriptionId}`);
             return null;
         }
     } catch (error) {
@@ -262,20 +198,15 @@ async function validateRoyaltyPayment(deployInscription, mintAddress) {
 
     while (retryCount < MAX_RETRIES) {
         try {
-            logger.info(`Validating royalty payment from ${mintAddress} to ${deployInscription.deployer_address}, attempt ${retryCount + 1}`);
             const txsRes = await axios.get(`${API_WALLET_URL}/address/${mintAddress}/txs`);
             const transactions = txsRes.data;
-
-            logger.info(`Retrieved ${transactions.length} transactions for address ${mintAddress}`);
 
             let totalRoyaltyPaid = 0;
 
             for (const tx of transactions) {
-                logger.info(`Checking transaction: ${tx.txid}`);
                 for (const output of tx.vout) {
                     if (output.scriptpubkey_address === deployInscription.deployer_address) {
                         totalRoyaltyPaid += output.value;
-                        logger.info(`Found royalty payment: ${output.value} satoshis to ${output.scriptpubkey_address}`);
                     }
                 }
             }
@@ -283,22 +214,17 @@ async function validateRoyaltyPayment(deployInscription, mintAddress) {
             const expectedRoyaltySatoshis = Math.floor(parseFloat(deployInscription.price) * 100000000);
             const isRoyaltyPaid = totalRoyaltyPaid >= expectedRoyaltySatoshis;
 
-            logger.info(`Total royalty paid: ${totalRoyaltyPaid} satoshis across ${transactions.length} transactions.`);
-
             return isRoyaltyPaid;
         } catch (error) {
             if (error.response && error.response.status === 504) {
-                logger.error('504 Gateway Timeout, retrying...');
                 retryCount++;
                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
             } else {
-                logger.error(`Error validating royalty payment:`, { message: error.message });
                 break;
             }
         }
     }
 
-    logger.error(`Failed to validate royalty payment after ${MAX_RETRIES} attempts.`);
     await waitForApiRecovery(); // Pause until API is available
     return false;
 }
@@ -354,14 +280,6 @@ async function validateMintData(mintId, deployInscription, mintAddress, transact
                         !isNaN(currentMintCount) && 
                         currentMintCount < maxMints;
 
-        logger.info(`Mint data validation for ${mintId}:`, {
-            mintAddress,
-            transactionId,
-            currentMintCount,
-            maxMints,
-            isValid
-        });
-
         return isValid;
     } catch (error) {
         logger.error(`Error validating mint data for ${mintId}:`, { message: error.message });
@@ -384,12 +302,13 @@ async function processBatch(batch, blockHeight) {
                 else if (result.type === 'bitmap') bitmapCount++;
             }
         } catch (error) {
-            logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
+            // Handle the error as needed, logging has been removed
         }
     }
 
     return { mintCount, deployCount, bitmapCount };
 }
+
 
 // ProcessInscription function with added checks for undefined values
 async function processInscription(inscriptionId, blockHeight) {
@@ -404,8 +323,6 @@ async function processInscription(inscriptionId, blockHeight) {
             content = JSON.stringify(content);
         }
 
-        processingLogger.info(`Processing inscription ${inscriptionId}: ${content}`);
-
         if (content.startsWith('{"p":"brc-420","op":"deploy"')) {
             const deployData = JSON.parse(content);
             deployData.deployer_address = await getDeployerAddress(inscriptionId);
@@ -414,7 +331,6 @@ async function processInscription(inscriptionId, blockHeight) {
             deployData.source_id = deployData.id;
 
             await saveDeploy(deployData);
-            processingLogger.info(`BRC-420 deploy inscription saved: ${inscriptionId}`);
             return { type: 'deploy' };
             
         } else if (content.startsWith('/content/')) {
@@ -439,16 +355,9 @@ async function processInscription(inscriptionId, blockHeight) {
                             block_height: blockHeight,
                             timestamp: Date.now()
                         });
-                        processingLogger.info(`BRC-420 mint saved: ${inscriptionId}`);
                         return { type: 'mint' };
-                    } else {
-                        processingLogger.info(`BRC-420 mint validation failed for mint ID ${mintId}. Royalty paid: ${isRoyaltyPaid}, Mint valid: ${isMintValid}`);
                     }
-                } else {
-                    processingLogger.info(`Unable to retrieve mint address for BRC-420 inscription ${inscriptionId}. Skipping.`);
                 }
-            } else {
-                processingLogger.info(`No deploy inscription found for BRC-420 mint ID ${mintId}. Skipping.`);
             }
         
         } else if (content.includes('.bitmap')) {
@@ -466,23 +375,11 @@ async function processInscription(inscriptionId, blockHeight) {
                             block_height: blockHeight
                         });
                         if (saved) {
-                            processingLogger.info(`Bitmap saved: ${inscriptionId}`);
                             return { type: 'bitmap' };
-                        } else {
-                            processingLogger.info(`Bitmap ${bitmapNumber} already exists. Inscription ${inscriptionId} not saved.`);
                         }
-                    } else {
-                        processingLogger.info(`Unable to retrieve address for bitmap inscription ${inscriptionId}. Skipping.`);
                     }
-                } else {
-                    processingLogger.info(`Invalid bitmap number for inscription ${inscriptionId}`);
                 }
-            } else {
-                processingLogger.info(`Invalid bitmap format for inscription ${inscriptionId}`);
             }
-        
-        } else {
-            processingLogger.info(`Unrecognized inscription type: ${inscriptionId}`);
         }
 
         return null;
@@ -497,15 +394,11 @@ async function waitForApiRecovery() {
     const maxDelay = 60000;
 
     while (true) {
-        logger.info('Waiting for API to become available...');
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         if (await isApiAvailable()) break;
 
-        logger.info('API still unavailable. Retrying...');
         retryDelay = Math.min(retryDelay * 2, maxDelay);
     }
-
-    logger.info('API is now available. Resuming mint processing.');
 }
 
 // Additional improvements to retryFailedBlocks to avoid potential endless loops
@@ -525,8 +418,6 @@ async function retryFailedBlocks(currentBlockHeight) {
                     db.run("DELETE FROM error_blocks WHERE block_height = ?", [row.block_height], (deleteErr) => {
                         if (deleteErr) {
                             logger.error(`Error deleting error block ${row.block_height}:`, { message: deleteErr.message });
-                        } else {
-                            logger.info(`Error block ${row.block_height} successfully retried and deleted.`);
                         }
                     });
                 } catch (error) {
@@ -547,7 +438,6 @@ function isValidBitmapFormat(content) {
 async function saveBitmap(bitmapData) {
     const exists = await bitmapNumberExists(bitmapData.bitmap_number);
     if (exists) {
-        logger.info(`Bitmap number ${bitmapData.bitmap_number} already exists. Skipping.`);
         return false;
     }
 
@@ -568,7 +458,6 @@ async function saveBitmap(bitmapData) {
                 logger.error('Error saving bitmap:', { message: err.message });
                 reject(err);
             } else {
-                logger.info('Bitmap saved successfully:', { bitmapData });
                 resolve(true);
             }
         });
@@ -656,18 +545,6 @@ function getDeployById(deployId) {
     });
 }
 
-const { Worker } = require('worker_threads');
-
-function runWorker(script, data) {
-    return new Promise((resolve, reject) => {
-        const worker = new Worker(script, { workerData: data });
-        worker.on('message', resolve);
-        worker.on('error', reject);
-        worker.on('exit', (code) => {
-            if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
-        });
-    });
-}
 
 async function checkExistingDeploys() {
     return new Promise((resolve, reject) => {
@@ -676,8 +553,6 @@ async function checkExistingDeploys() {
                 logger.error("Error checking existing deploys:", { message: err.message });
                 reject(err);
             } else {
-                logger.info(`Found ${rows.length} existing deploy inscriptions:`);
-                rows.forEach(row => logger.info(JSON.stringify(row)));
                 resolve(rows);
             }
         });
@@ -732,3 +607,4 @@ app.listen(PORT, () => {
         logger.error("Error in main processing loop:", { message: error.message });
     });
 });
+

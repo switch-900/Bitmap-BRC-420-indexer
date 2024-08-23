@@ -1,0 +1,1336 @@
+.
+├── app.log
+├── config.js
+require('dotenv').config();
+
+module.exports = {
+    API_URL: process.env.API_URL,
+    API_WALLET_URL: process.env.API_WALLET_URL,
+    START_BLOCK: 792435, // first brc-420 in block 807604 first bitmap in block 792435
+    RETRY_BLOCK_DELAY: 3,
+    DB_PATH: './db/brc420.db',
+    PORT: 5000,
+    MAX_RETRIES: 3,
+    RETRY_DELAY: 5000,
+    CONCURRENCY_LIMIT: 5
+};
+
+
+├── db
+│   └── brc420.db
+
+├── index.js
+├── package-lock.json
+├── package.json
+├── previosworkingcode.js
+├── processing.log
+├── public
+│   ├── bitmaps.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitmaps</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: black;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 80%;
+            margin: 0 auto;
+            color: white;
+        }
+
+        .navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .navigation a {
+            color: #2e82b9;
+            text-decoration: none;
+            font-size: 18px;
+        }
+
+        .bitmap-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .bitmap {
+            width: calc(25% - 20px);
+            padding-top: calc(25% - 20px); /* Ensures the height is equal to the width */
+            position: relative;
+            border: 1px solid orange;
+            background-color: #1a1a1a;
+            cursor: pointer;
+            text-align: center;
+            box-sizing: border-box;
+        }
+
+        .bitmap-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: orange;
+            color: black;
+            padding: 5px 0;
+            font-weight: bold;
+            box-sizing: border-box;
+        }
+
+        .bitmap-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            width: 80%;
+            text-align: left;
+            box-sizing: border-box;
+            border-radius: 5px;
+            overflow-wrap: break-word;
+        }
+
+        .iframe-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            margin-top: 20px;
+        }
+
+        .iframe-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 1px solid #2e82b9;
+            overflow: hidden;
+        }
+
+        .search-bar {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .search-bar input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            background-color: #1a1a1a;
+            color: white;
+        }
+
+        .search-bar button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #2e82b9;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 16px;
+            color: white;
+        }
+
+        .shortened {
+            display: inline-block;
+            max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="navigation">
+            <a href="index.html">Deploys and Mints</a>
+            <a href="bitmaps.html">Bitmaps</a>
+        </div>
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search bitmaps...">
+            <button onclick="performSearch()">Search</button>
+        </div>
+        <div id="bitmapContainer" class="bitmap-container"></div>
+        <div id="loading" class="loading">Loading...</div>
+        <div class="iframe-container" id="iframeContainer" style="display: none;">
+            <iframe id="bitmapIframe" src="" frameborder="0"></iframe>
+        </div>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:5000/api';  // Base URL for API
+        let currentPage = 1;
+        let isLoading = false;
+        let lastQuery = '';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadBitmaps();
+            window.addEventListener('scroll', handleScroll);
+        });
+
+        function shortenText(text, maxLength = 15) {
+            if (text.length <= maxLength) return text;
+            return `${text.substring(0, 6)}...${text.substring(text.length - 4)}`;
+        }
+
+        function loadBitmaps(query = '') {
+            if (isLoading) return;
+            isLoading = true;
+            lastQuery = query;
+
+            const bitmapContainer = document.getElementById('bitmapContainer');
+            const loadingElement = document.getElementById('loading');
+
+            loadingElement.style.display = 'block';
+
+            fetch(`${API_URL}/bitmaps?page=${currentPage}&limit=20&number=${query}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        loadingElement.textContent = 'No more bitmaps to load.';
+                        isLoading = false;
+                        return;
+                    }
+
+                    data.forEach(bitmap => {
+                        const bitmapElement = document.createElement('div');
+                        bitmapElement.className = 'bitmap';
+
+                        bitmapElement.innerHTML = `
+                            <div class="bitmap-header">${bitmap.bitmap_number}.bitmap</div>
+                            <div class="bitmap-content">
+                                <div><strong>Inscription ID:</strong> <span class="shortened">${shortenText(bitmap.inscription_id)}</span></div>
+                                <div><strong>Address:</strong> <span class="shortened">${shortenText(bitmap.address)}</span></div>
+                                <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                                <div><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>
+                            </div>
+                        `;
+
+                        // Click event to display the bitmap content in the iframe
+                        bitmapElement.onclick = () => loadBitmapInIframe(bitmap.inscription_id);
+
+                        bitmapContainer.appendChild(bitmapElement);
+                    });
+
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                    currentPage++;
+                })
+                .catch(error => {
+                    console.error('Error loading bitmaps:', error);
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                });
+        }
+
+        function handleScroll() {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            if (scrollTop + clientHeight >= scrollHeight - 5 && !isLoading) {
+                loadBitmaps(lastQuery);
+            }
+        }
+
+        function performSearch() {
+            const query = document.getElementById('searchInput').value;
+            currentPage = 1;
+            document.getElementById('bitmapContainer').innerHTML = '';
+            loadBitmaps(query);
+        }
+
+        function loadBitmapInIframe(inscriptionId) {
+            const iframeContainer = document.getElementById('iframeContainer');
+            const bitmapIframe = document.getElementById('bitmapIframe');
+
+            // Set the iframe source to display the bitmap content
+            bitmapIframe.src = `https://ordinals.com/content/${inscriptionId}`;
+
+            // Display the iframe container
+            iframeContainer.style.display = 'block';
+
+            // Scroll to the iframe
+            iframeContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
+
+│   ├── deploy.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Details</title>
+    <style>
+      body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: black;
+    color: white;
+    max-width: 1200px;
+    margin: 0 auto;
+    overflow-x: hidden; /* Prevent horizontal scrollbars */
+}
+.container {
+    padding: 20px;
+    background-color: #1a1a1a;
+    border-radius: 8px;
+}
+.content-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+.deploy-details {
+    flex: 1;
+    background-color: #1a1a1a;
+    padding: 20px;
+    border-radius: 8px;
+}
+.details-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.details-table th, .details-table td {
+    padding: 12px;
+    border: 1px solid #2e82b9;
+}
+.details-table th {
+    background-color: #2e82b9;
+    color: #ffffff;
+    text-align: left;
+}
+.details-table td {
+    background-color: #333333;
+}
+.iframe-container {
+    flex: 1;
+    position: relative;
+    border: 1px solid #2e82b9;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.iframe-container iframe {
+    width: 100%;
+    height: 100%;
+}
+.mints-container {
+    margin-top: 20px;
+    background-color: #333;
+    padding: 20px;
+    border-radius: 8px;
+    max-width: 98%;
+    overflow-y: auto;
+    max-height: 30vh;
+    margin: 0 auto;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom Scrollbar */
+.mints-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.mints-container::-webkit-scrollbar-track {
+    background: #1a1a1a; /* Dark background for scrollbar track */
+    border-radius: 10px;
+}
+
+.mints-container::-webkit-scrollbar-thumb {
+    background-color: #2e82b9; /* Scrollbar color matching the theme */
+    border-radius: 10px;
+    border: 2px solid #1a1a1a; /* Padding around scrollbar thumb */
+}
+
+.mints-container::-webkit-scrollbar-thumb:hover {
+    background-color: #1e6b96; /* Slightly lighter color on hover */
+}
+
+.mint {
+    border: 1px solid #2e82b9;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    background-color: #1a1a1a;
+}
+.mint strong {
+    color: #2e82b9;
+}
+.navigation {
+    display: flex;
+    justify-content: space-between;
+    background-color: #1a1a1a;
+    margin-bottom: 2px;
+    border-radius: 10px;
+}
+.navigation a {
+    color: #2e82b9;
+    text-decoration: none;
+    font-size: 18px;
+    padding: 5px;
+}
+
+    </style>
+</head>
+<body>
+            <div class="navigation"> 
+
+
+            <a href="index.html">Deploys and Mints</a>
+            
+            <h1 id="deployName">Deploy Details</h1>
+            <a href="bitmaps.html">Bitmaps</a>
+        </div>
+
+    
+        <div class="container">
+        <div class="content-row">
+            <div id="deployInfo" class="deploy-details">
+                <table class="details-table">
+                    <tr>
+                        <th>Source ID</th>
+                        <td id="sourceId"></td>
+                    </tr>
+                    <tr>
+                        <th>Max Mints</th>
+                        <td id="maxMints"></td>
+                    </tr>
+                    <tr>
+                        <th>Price</th>
+                        <td id="price"></td>
+                    </tr>
+                    <tr>
+                        <th>Deployer Address</th>
+                        <td id="deployerAddress"></td>
+                    </tr>
+                    <tr>
+                        <th>Block Height</th>
+                        <td id="blockHeight"></td>
+                    </tr>
+                    <tr>
+                        <th>Total Mints</th>
+                        <td id="totalMints"></td>
+                    </tr>
+                </table>
+            </div>
+            <div id="deployContent" class="iframe-container">
+                <iframe id="deployIframe" src="" frameborder="0"></iframe>
+            </div>
+        </div>
+        
+        <div class="mints-container" id="mintsContainer"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        const CONTENT_URL = 'https://ordinals.com';
+        const urlParams = new URLSearchParams(window.location.search);
+        const deployId = urlParams.get('id');
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadDeployDetails(deployId);
+        });
+
+        function loadDeployDetails(deployId) {
+            fetch(`${API_URL}/deploy/${deployId}/summary`)
+                .then(response => response.json())
+                .then(deploy => {
+                    document.getElementById('deployName').textContent = deploy.name;
+                    document.getElementById('sourceId').textContent = deploy.source_id;
+                    document.getElementById('maxMints').textContent = deploy.max;
+                    document.getElementById('price').textContent = deploy.price;
+                    document.getElementById('deployerAddress').textContent = deploy.deployer_address;
+                    document.getElementById('blockHeight').textContent = deploy.block_height;
+                    document.getElementById('totalMints').textContent = deploy.total_mints;
+
+                    // Load the content in the iframe
+                    document.getElementById('deployIframe').src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                    loadMints(deployId);
+                })
+                .catch(error => console.error('Error loading deploy details:', error));
+        }
+
+        function loadMints(deployId) {
+            fetch(`${API_URL}/deploy/${deployId}/mints`)
+                .then(response => response.json())
+                .then(mints => {
+                    const mintsContainer = document.getElementById('mintsContainer');
+                    mintsContainer.innerHTML = ''; // Clear previous mints
+                    mints.forEach(mint => {
+                        const mintElement = document.createElement('div');
+                        mintElement.className = 'mint';
+                        mintElement.innerHTML = `
+                            <p><strong>Mint ID:</strong> ${mint.id}</p>
+                            <p><strong>Mint Address:</strong> ${mint.mint_address}</p>
+                            <p><strong>Transaction ID:</strong> ${mint.transaction_id}</p>
+                            <p><strong>Block Height:</strong> ${mint.block_height}</p>
+                            <p><strong>Timestamp:</strong> ${new Date(mint.timestamp).toLocaleString()}</p>
+                        `;
+                        mintsContainer.appendChild(mintElement);
+                    });
+                })
+                .catch(error => console.error('Error loading mints:', error));
+        }
+    </script>
+</body>
+</html>
+
+│   ├── index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploys and Mints</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: black;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 80%;
+            margin: 0 auto;
+            color: white;
+        }
+
+        .deploy-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .deploy {
+            width: calc(25% - 20px);
+            height: 300px;
+            border: 1px solid #2e82b9;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            background-color: #1a1a1a;
+        }
+
+        .deploy iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            overflow: hidden;
+            scroll-behavior: smooth;
+        }
+
+        .deploy .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+        }
+
+        .deploy .mint-counter {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+
+        .search-bar {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .search-bar input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            background-color: #1a1a1a;
+            color: white;
+        }
+
+        .search-bar button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #2e82b9;
+            color: white;
+        }
+
+        .sort-toggle {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .sort-toggle button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #2e82b9;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #2e82b9;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 16px;
+            color: white;
+        }
+   .navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .navigation a {
+            color: #2e82b9;
+            text-decoration: none;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="navigation">
+            <a href="index.html">Deploys and Mints</a>
+            <a href="bitmaps.html">Bitmaps</a>
+        </div>
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search deploys or mints...">
+            <button onclick="performSearch()">Search</button>
+          
+                <button onclick="toggleSortOrder()">Sort: First/Last</button>
+            
+        </div>
+     
+        <div id="deployContainer" class="deploy-container"></div>
+        <div id="loading" class="loading">Loading...</div>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:5000/api';  // Base URL for API
+        const CONTENT_URL = 'https://ordinals.com';   // Base URL for content
+        let currentPage = 1;
+        let sortOrder = 'desc';  // 'desc' for latest first, 'asc' for oldest first
+        let isLoading = false;
+        let lastQuery = '';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadDeploys();
+            window.addEventListener('scroll', handleScroll);
+        });
+
+        function loadDeploys(query = '') {
+            if (isLoading) return;
+            isLoading = true;
+            lastQuery = query;
+
+            const deployContainer = document.getElementById('deployContainer');
+            const loadingElement = document.getElementById('loading');
+
+            loadingElement.style.display = 'block';
+
+            fetch(`${API_URL}/deploys/with-mints?page=${currentPage}&limit=20&order=${sortOrder}&name=${query}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        loadingElement.textContent = 'No more deploys to load.';
+                        isLoading = false;
+                        return;
+                    }
+
+                    data.forEach(deploy => {
+                        const deployElement = document.createElement('div');
+                        deployElement.className = 'deploy';
+                        deployElement.style.position = 'relative';
+
+                        // Create a loading placeholder or background
+                        deployElement.style.background = 'url("/path/to/loading-placeholder.jpg") center center / cover no-repeat';
+
+                        // Create the iframe with lazy loading
+                        const iframe = document.createElement('iframe');
+                        iframe.setAttribute('loading', 'lazy');
+                        iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                        iframe.frameBorder = '0';
+                        iframe.scrolling = 'no';  // Ensure no scrollbars
+                        iframe.style.overflow = 'hidden';
+
+                        // Create the overlay
+                        const overlay = document.createElement('div');
+                        overlay.className = 'overlay';
+
+                        // Click event to load the deploy details
+                        overlay.onclick = () => loadDeployDetails(deploy.id);
+
+                        // Create the mint counter
+                        const mintCounter = document.createElement('div');
+                        mintCounter.className = 'mint-counter';
+                        mintCounter.textContent = `${deploy.total_mints} / ${deploy.max} mints`;
+
+                        // Append the iframe, mint counter, and overlay to the deploy element
+                        deployElement.appendChild(iframe);
+                        deployElement.appendChild(mintCounter);
+                        deployElement.appendChild(overlay);
+
+                        // Append the deploy element to the container
+                        deployContainer.appendChild(deployElement);
+                    });
+
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                    currentPage++;
+                })
+                .catch(error => {
+                    console.error('Error loading deploys:', error);
+                    isLoading = false;
+                    loadingElement.style.display = 'none';
+                });
+        }
+
+        function handleScroll() {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            if (scrollTop + clientHeight >= scrollHeight - 5) {
+                loadDeploys(lastQuery);
+            }
+        }
+
+        function toggleSortOrder() {
+            sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            currentPage = 1;
+            document.getElementById('deployContainer').innerHTML = '';
+            loadDeploys(lastQuery);
+        }
+
+        function performSearch() {
+            const query = document.getElementById('searchInput').value;
+            currentPage = 1;
+            document.getElementById('deployContainer').innerHTML = '';
+            loadDeploys(query);
+        }
+
+        function loadDeployDetails(deployId) {
+            window.location.href = `deploy.html?id=${deployId}`;
+        }
+    </script>
+</body>
+</html>
+
+│   ├── js
+│   │   └── app.js
+const API_URL = 'http://localhost:5000/api';  // Base URL for API
+const CONTENT_URL = 'https://ordinals.com';  // Base URL for content
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadDeploys();
+});
+
+function loadDeploys() {
+    fetch(`${API_URL}/deploys/with-mints`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            const deployContainer = document.getElementById('deployContainer');
+            deployContainer.innerHTML = '';
+            data.forEach(deploy => {
+                const deployElement = document.createElement('div');
+                deployElement.className = 'deploy';
+                deployElement.style.position = 'relative';  // Ensure relative positioning for overlay
+
+                // Create the iframe with the correct content URL
+                const iframe = document.createElement('iframe');
+                iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                iframe.frameBorder = '0';
+                iframe.style.width = '100%';
+                iframe.style.height = '100%';
+                
+                // Create the overlay
+                const overlay = document.createElement('div');
+                overlay.className = 'overlay';
+                overlay.style.position = 'absolute';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+                overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';  // Slightly transparent overlay
+                overlay.style.cursor = 'pointer';
+                
+                // Click event to load the deploy details
+                overlay.onclick = () => loadDeployDetails(deploy.id);
+
+                // Append the iframe and overlay to the deploy element
+                deployElement.appendChild(iframe);
+                deployElement.appendChild(overlay);
+                
+                // Append the deploy element to the container
+                deployContainer.appendChild(deployElement);
+            });
+        })
+        .catch(error => console.error('Error loading deploys:', error));
+}
+
+function loadDeployDetails(deployId) {
+    window.location.href = `deploy.html?id=${deployId}`;
+}
+function loadBitmaps(query = '') {
+    if (isLoading) return;
+    isLoading = true;
+    lastQuery = query;
+
+    const bitmapContainer = document.getElementById('bitmapContainer');
+    const loadingElement = document.getElementById('loading');
+
+    loadingElement.style.display = 'block';
+
+
+    fetch(`${API_URL}/bitmaps?page=${currentPage}&limit=20`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+            return response.text(); // Use text() to manually parse JSON
+        })
+        .then(text => {
+            try {
+                const data = JSON.parse(text); // Parse the text to JSON
+                if (data.length === 0) {
+                    loadingElement.textContent = 'No more bitmaps to load.';
+                    isLoading = false;
+                    return;
+                }
+
+                data.forEach(bitmap => {
+                    const bitmapElement = document.createElement('div');
+                    bitmapElement.className = 'bitmap';
+
+                    bitmapElement.innerHTML = `
+                        <div><strong>Bitmap Number:</strong> ${bitmap.bitmap_number}</div>
+                        <div class="bitmap-content"><strong>Content:</strong> ${bitmap.content}</div>
+                        <div><strong>Address:</strong> ${bitmap.address}</div>
+                        <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                        <div><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>
+                    `;
+
+                    // Click event to display the bitmap content in the iframe
+                    bitmapElement.onclick = () => loadBitmapInIframe(bitmap.inscription_id);
+
+                    bitmapContainer.appendChild(bitmapElement);
+                });
+
+                isLoading = false;
+                loadingElement.style.display = 'none';
+                currentPage++;
+            } catch (error) {
+                throw new Error('Failed to parse JSON: ' + error.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading bitmaps:', error);
+            isLoading = false;
+            loadingElement.style.display = 'none';
+        });
+}
+
+
+function performSearch() {
+    const query = document.getElementById('searchInput').value;
+    fetch(`${API_URL}/deploys?name=${query}`)
+        .then(response => response.json())
+        .then(data => {
+            const deployContainer = document.getElementById('deployContainer');
+            deployContainer.innerHTML = '';
+            data.forEach(deploy => {
+                const deployElement = document.createElement('div');
+                deployElement.className = 'deploy';
+                deployElement.style.position = 'relative';  // Ensure relative positioning for overlay
+
+                // Create the iframe with the correct content URL
+                const iframe = document.createElement('iframe');
+                iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                iframe.frameBorder = '0';
+                iframe.style.width = '100%';
+                iframe.style.height = '100%';
+                
+                // Create the overlay
+                const overlay = document.createElement('div');
+                overlay.className = 'overlay';
+                overlay.style.position = 'absolute';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+                overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';  // Slightly transparent overlay
+                overlay.style.cursor = 'pointer';
+                
+                // Click event to load the deploy details
+                overlay.onclick = () => loadDeployDetails(deploy.id);
+
+                // Append the iframe and overlay to the deploy element
+                deployElement.appendChild(iframe);
+                deployElement.appendChild(overlay);
+                
+                // Append the deploy element to the container
+                deployContainer.appendChild(deployElement);
+            });
+        })
+        .catch(error => console.error('Error performing search:', error));
+}
+
+
+│   └── style.css
+├── readme
+├── routes
+│   ├── api.js
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const router = express.Router();
+
+const db = new sqlite3.Database('./db/brc420.db');
+
+// Helper function for pagination
+function paginate(query, params, page = 1, limit = 20) {
+    const offset = (page - 1) * limit;
+    return {
+        query: query + ` LIMIT ${limit} OFFSET ${offset}`,
+        params: params
+    };
+}
+
+// Endpoint to get deploy inscriptions by ID or name
+router.get('/deploys', (req, res) => {
+    const { id, name, page = 1, limit = 20 } = req.query;
+    let query, params;
+
+    if (id) {
+        query = "SELECT * FROM deploys WHERE id = ?";
+        params = [id];
+    } else if (name) {
+        query = "SELECT * FROM deploys WHERE name LIKE ?";
+        params = [`%${name}%`]; // Using LIKE to allow partial name matches
+    } else {
+        query = "SELECT * FROM deploys";
+        params = [];
+    }
+
+    const paginatedQuery = paginate(query, params, page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to validate a mint by mint ID
+router.get('/mint/:mint_id', (req, res) => {
+    const mintId = req.params.mint_id;
+
+    db.get("SELECT * FROM mints WHERE id = ?", [mintId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Mint not found" });
+        }
+        return res.json(row);
+    });
+});
+
+// Endpoint to get mints for a specific deploy ID
+router.get('/deploy/:deploy_id/mints', (req, res) => {
+    const deployId = req.params.deploy_id;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM mints WHERE deploy_id = ?", [deployId], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get wallet information for an inscription
+router.get('/wallet/:inscription_id', (req, res) => {
+    const inscriptionId = req.params.inscription_id;
+
+    // Updated to query deploys, mints, and bitmaps directly
+    const query = `
+        SELECT * FROM (
+            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE id = ?
+            UNION ALL
+            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE id = ?
+            UNION ALL
+            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE inscription_id = ?
+        ) WHERE inscription_id = ?
+    `;
+
+    db.get(query, [inscriptionId, inscriptionId, inscriptionId, inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Wallet not found for this inscription" });
+        }
+        return res.json(row);
+    });
+});
+
+// Endpoint to get all inscriptions for a specific address
+router.get('/address/:address/inscriptions', (req, res) => {
+    const address = req.params.address;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate(`
+        SELECT * FROM (
+            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE wallet = ?
+            UNION ALL
+            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE wallet = ?
+            UNION ALL
+            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE wallet = ?
+        ) WHERE address = ?
+    `, [address, address, address, address], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get the processing status of a specific block
+router.get('/block/:block_height/status', (req, res) => {
+    const blockHeight = req.params.block_height;
+
+    db.get("SELECT * FROM blocks WHERE block_height = ?", [blockHeight], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Block not found or not yet processed" });
+        }
+        return res.json({ block_height: row.block_height, processed: row.processed === 1 });
+    });
+});
+
+// Endpoint to get error blocks
+router.get('/error-blocks', (req, res) => {
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM error_blocks ORDER BY retry_at", [], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get a summary of a specific deploy by ID
+router.get('/deploy/:deploy_id/summary', (req, res) => {
+    const deployId = req.params.deploy_id;
+
+    db.get(`SELECT 
+                deploys.*, 
+                COUNT(mints.id) as total_mints 
+            FROM deploys 
+            LEFT JOIN mints ON deploys.id = mints.deploy_id 
+            WHERE deploys.id = ? 
+            GROUP BY deploys.id`, 
+            [deployId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Deploy not found" });
+        }
+        return res.json(row);
+    });
+});
+
+// Endpoint to get all deploys with their mint counts
+router.get('/deploys/with-mints', (req, res) => {
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate(`
+        SELECT 
+            deploys.*, 
+            COUNT(mints.id) as total_mints 
+        FROM deploys 
+        LEFT JOIN mints ON deploys.id = mints.deploy_id 
+        GROUP BY deploys.id`, [], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// New endpoint to get bitmap by inscription ID
+router.get('/bitmap/:inscription_id', (req, res) => {
+    const inscriptionId = req.params.inscription_id;
+
+    db.get("SELECT * FROM bitmaps WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Bitmap not found" });
+        }
+        return res.json(row);
+    });
+});
+
+// Endpoint to get bitmaps by bitmap number
+router.get('/bitmaps/number/:bitmap_number', (req, res) => {
+    const bitmapNumber = req.params.bitmap_number;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE bitmap_number = ?", [bitmapNumber], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get all bitmaps for a specific address
+router.get('/address/:address/bitmaps', (req, res) => {
+    const address = req.params.address;
+    const { page = 1, limit = 20 } = req.query;
+
+    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE address = ?", [address], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+// Endpoint to get a summary of bitmaps (total count, latest bitmap number, etc.)
+router.get('/bitmaps/summary', (req, res) => {
+    db.get(`
+        SELECT 
+            COUNT(*) as total_bitmaps,
+            MAX(bitmap_number) as latest_bitmap_number,
+            MIN(timestamp) as earliest_timestamp,
+            MAX(timestamp) as latest_timestamp
+        FROM bitmaps
+    `, (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(row);
+    });
+});
+
+// New endpoint to get all bitmaps with optional pagination
+router.get('/bitmaps', (req, res) => {
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    db.all("SELECT * FROM bitmaps LIMIT ? OFFSET ?", [limit, offset], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(rows);
+    });
+});
+
+
+
+
+
+module.exports = router;
+
+│   └── index.js
+const express = require('express');
+const router = express.Router();
+
+router.use('/api', require('./api')); 
+
+module.exports = router;
+
+├── server.js
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Enable CORS
+app.use(cors());
+
+// Serve static files from the "public" directory
+app.use(express.static('public'));
+
+// Serve the index.html for the root route
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/public/index.html');
+});
+
+// Serve the deploy.html for the deploy details page
+app.get('/deploy', (req, res) => {
+    res.sendFile(__dirname + '/public/deploy.html');
+});
+
+app.listen(PORT, () => {
+    console.log(`Frontend server running on http://localhost:${PORT}`);
+});
+
+└── setup.js
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const { open } = require('sqlite');
+
+const DB_PATH = path.join(__dirname, './db/brc420.db');
+
+async function setupDatabase() {
+    try {
+        const db = await open({
+            filename: DB_PATH,
+            driver: sqlite3.Database
+        });
+
+        console.log('Connected to the BRC-420 database for setup.');
+
+        await db.exec(`
+            -- Create deploys table
+            CREATE TABLE IF NOT EXISTS deploys (
+                id TEXT PRIMARY KEY,
+                p TEXT,
+                op TEXT,
+                name TEXT,
+                max INTEGER,
+                price REAL,
+                deployer_address TEXT,
+                block_height INTEGER,
+                timestamp INTEGER,
+                source_id TEXT,
+                wallet TEXT,
+                updated_at INTEGER,
+                mint_count INTEGER DEFAULT 0
+            );
+
+            -- Create mints table
+            CREATE TABLE IF NOT EXISTS mints (
+                id TEXT PRIMARY KEY,
+                deploy_id TEXT,
+                source_id TEXT,
+                mint_address TEXT,
+                transaction_id TEXT,
+                block_height INTEGER,
+                timestamp INTEGER,
+                inscription_id TEXT,
+                wallet TEXT,
+                updated_at INTEGER,
+                FOREIGN KEY (deploy_id) REFERENCES deploys(id)
+            );
+
+            -- Create blocks table
+            CREATE TABLE IF NOT EXISTS blocks (
+                block_height INTEGER PRIMARY KEY,
+                processed INTEGER DEFAULT 0
+            );
+
+            -- Create error_blocks table
+            CREATE TABLE IF NOT EXISTS error_blocks (
+                block_height INTEGER PRIMARY KEY,
+                retry_at INTEGER
+            );
+
+            -- Drop existing bitmaps table if it exists
+            DROP TABLE IF EXISTS bitmaps;
+
+            -- Create new bitmaps table with wallet column
+            CREATE TABLE IF NOT EXISTS bitmaps (
+                inscription_id TEXT PRIMARY KEY,
+                bitmap_number INTEGER,
+                content TEXT,
+                address TEXT,
+                timestamp INTEGER,
+                block_height INTEGER,
+                wallet TEXT,
+                updated_at INTEGER
+            );
+
+            -- Create indexes for faster queries
+            CREATE INDEX IF NOT EXISTS idx_bitmap_number ON bitmaps(bitmap_number);
+            CREATE INDEX IF NOT EXISTS idx_deploy_id ON mints(deploy_id);
+            CREATE INDEX IF NOT EXISTS idx_deploy_name ON deploys(name);
+            CREATE INDEX IF NOT EXISTS idx_block_height ON blocks(block_height);
+            CREATE INDEX IF NOT EXISTS idx_wallet_address ON deploys(wallet);
+            CREATE INDEX IF NOT EXISTS idx_wallet_updated_at ON deploys(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_mint_wallet_address ON mints(wallet);
+            CREATE INDEX IF NOT EXISTS idx_mint_wallet_updated_at ON mints(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_bitmap_wallet_address ON bitmaps(wallet);
+            CREATE INDEX IF NOT EXISTS idx_bitmap_wallet_updated_at ON bitmaps(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_error_blocks_retry_at ON error_blocks(retry_at);
+        `);
+
+        console.log('Database setup completed successfully.');
+        await db.close();
+        console.log('Database connection closed.');
+    } catch (err) {
+        console.error('Error during database setup:', err.message);
+        process.exit(1);
+    }
+}
+
+setupDatabase();
