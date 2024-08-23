@@ -223,7 +223,16 @@ async function saveDeploy(deployData) {
 }
 
 // Function to retrieve a deploy inscription by its ID from the database with Winston logging
-function getDeployById(deployId) {
+async function getDeployById(deployId) {
+    // Check if the deploy inscription is already in the cache
+    const cacheKey = `deploy:${deployId}`;
+    const cachedDeploy = getFromCache(cacheKey);
+
+    if (cachedDeploy) {
+        logger.info(`Cache hit: Deploy found for ID ${deployId}:`, { deploy: cachedDeploy });
+        return cachedDeploy;
+    }
+
     return new Promise((resolve, reject) => {
         const sql = `SELECT * FROM deploys WHERE id = ?`;
         db.get(sql, [deployId], (err, row) => {
@@ -233,6 +242,8 @@ function getDeployById(deployId) {
             } else {
                 if (row) {
                     logger.info(`Deploy found for ID ${deployId}:`, { deploy: row });
+                    // Cache the deploy inscription
+                    setInCache(cacheKey, row);
                 } else {
                     logger.info(`No deploy found for ID ${deployId}`);
                 }
@@ -241,6 +252,7 @@ function getDeployById(deployId) {
         });
     });
 }
+
 
 // Function to get mint address with Winston logging
 async function getMintAddress(inscriptionId) {
@@ -430,6 +442,15 @@ async function processInscription(inscriptionId, blockHeight) {
                 return;
             }
 
+            // Fetch and compare MIME types
+            const deployMimeType = await getMimeType(deployInscription.source_id);
+            const mintMimeType = await getMimeType(inscriptionId);
+
+            if (deployMimeType !== mintMimeType) {
+                logger.info(`MIME type mismatch: Deploy MIME type is ${deployMimeType}, but Mint MIME type is ${mintMimeType}. Skipping.`);
+                return;
+            }
+
             const isRoyaltyPaid = await validateRoyaltyPayment(deployInscription, mintAddress);
             logger.info(`Royalty paid: ${isRoyaltyPaid}`);
 
@@ -457,6 +478,56 @@ async function processInscription(inscriptionId, blockHeight) {
         logErrorBlock(blockHeight);
     }
 }
+
+const cache = {};
+
+// Helper function to get data from the cache
+function getFromCache(key) {
+    if (cache[key] && (Date.now() < cache[key].expiry)) {
+        return cache[key].value;
+    }
+    return null;
+}
+
+// Helper function to set data in the cache with an optional expiry time
+function setInCache(key, value, ttl = 60000) { // ttl is time-to-live in ms
+    const expiry = Date.now() + ttl;
+    cache[key] = { value, expiry };
+}
+
+// Helper function to invalidate cache
+function invalidateCache(key) {
+    delete cache[key];
+}
+
+
+async function getMimeType(inscriptionId) {
+    // Check if the MIME type is already in the cache
+    const cacheKey = `mimeType:${inscriptionId}`;
+    const cachedMimeType = getFromCache(cacheKey);
+
+    if (cachedMimeType) {
+        logger.info(`Cache hit: MIME type for inscription ${inscriptionId}: ${cachedMimeType}`);
+        return cachedMimeType;
+    }
+
+    try {
+        const response = await axios.head(`${API_URL}/content/${inscriptionId}`, {
+            headers: { 'Accept': 'text/plain;charset=utf-8' }
+        });
+        const mimeType = response.headers['content-type'];
+
+        // Cache the MIME type for future use
+        setInCache(cacheKey, mimeType);
+
+        logger.info(`MIME type for inscription ${inscriptionId}: ${mimeType}`);
+        return mimeType;
+    } catch (error) {
+        logger.error(`Error getting MIME type for inscription ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
 
 // Function to process a block with improved pagination and Winston logging
 async function processBlock(blockHeight) {
