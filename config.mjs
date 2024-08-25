@@ -1,6 +1,7 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
-module.exports = {
+export const config = {
     API_URL: process.env.API_URL,
     API_WALLET_URL: process.env.API_WALLET_URL,
     START_BLOCK: 807604,
@@ -9,5 +10,5 @@ module.exports = {
     PORT: 5000,
     MAX_RETRIES: 3,
     RETRY_DELAY: 5000,
-    CONCURRENCY_LIMIT: 5
+    CONCURRENCY_LIMIT: 10
 };

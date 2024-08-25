@@ -1,7 +1,7 @@
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const router = express.Router();
+import express from 'express';
+import sqlite3 from 'sqlite3';
 
+const router = express.Router();
 const db = new sqlite3.Database('./db/brc420.db');
 
 // Helper function for pagination
@@ -23,7 +23,7 @@ router.get('/deploys', (req, res) => {
         params = [id];
     } else if (name) {
         query = "SELECT * FROM deploys WHERE name LIKE ?";
-        params = [`%${name}%`]; // Using LIKE to allow partial name matches
+        params = [`%${name}%`];
     } else {
         query = "SELECT * FROM deploys";
         params = [];
@@ -186,4 +186,4 @@ router.get('/deploy-mint/:deploy_mint_id/mints', (req, res) => {
     });
 });
 
-module.exports = router;
+export default router;

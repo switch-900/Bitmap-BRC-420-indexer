@@ -1,6 +1,11 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const { open } = require('sqlite');
+import sqlite3 from 'sqlite3';
+import path from 'path';
+import { open } from 'sqlite';
+import { fileURLToPath } from 'url';
+
+// Setup __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DB_PATH = path.join(__dirname, './db/brc420.db');
 
@@ -28,7 +33,8 @@ async function setupDatabase() {
                 source_id TEXT,
                 wallet TEXT,
                 updated_at INTEGER,
-                mint_count INTEGER DEFAULT 0
+                mint_count INTEGER DEFAULT 0,
+                position INTEGER  -- Add position for deploys
             );
 
             -- Create mints table
@@ -43,6 +49,10 @@ async function setupDatabase() {
                 inscription_id TEXT,
                 wallet TEXT,
                 updated_at INTEGER,
+                previous_wallet TEXT,
+                wallet_update_block INTEGER,
+                wallet_update_timestamp INTEGER,
+                position INTEGER,  -- Add position for mints
                 FOREIGN KEY (deploy_id) REFERENCES deploys(id)
             );
 
@@ -58,26 +68,29 @@ async function setupDatabase() {
                 retry_at INTEGER
             );
 
-            -- Create wallets table
-            CREATE TABLE IF NOT EXISTS wallets (
+            -- Create bitmaps table
+            CREATE TABLE IF NOT EXISTS bitmaps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 inscription_id TEXT,
+                block_height INTEGER,
+                bitmap_number INTEGER,
                 address TEXT,
-                type TEXT,
-                updated_at INTEGER,
-                PRIMARY KEY (inscription_id, address)
+                content TEXT,
+                previous_address TEXT,
+                address_update_block INTEGER,
+                address_update_timestamp INTEGER,
+                position INTEGER,  -- Add position for bitmaps
+                UNIQUE(inscription_id, bitmap_number)
             );
 
             -- Create indexes for faster queries
             CREATE INDEX IF NOT EXISTS idx_deploy_id ON mints(deploy_id);
             CREATE INDEX IF NOT EXISTS idx_deploy_name ON deploys(name);
             CREATE INDEX IF NOT EXISTS idx_block_height ON blocks(block_height);
-            CREATE INDEX IF NOT EXISTS idx_wallet_address ON deploys(wallet);
-            CREATE INDEX IF NOT EXISTS idx_wallet_updated_at ON deploys(updated_at);
             CREATE INDEX IF NOT EXISTS idx_mint_wallet_address ON mints(wallet);
             CREATE INDEX IF NOT EXISTS idx_mint_wallet_updated_at ON mints(updated_at);
             CREATE INDEX IF NOT EXISTS idx_error_blocks_retry_at ON error_blocks(retry_at);
-            CREATE INDEX IF NOT EXISTS idx_wallet_inscription_id ON wallets(inscription_id);
-            CREATE INDEX IF NOT EXISTS idx_wallet_updated_at ON wallets(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_bitmap_block_height ON bitmaps(block_height);
         `);
 
         console.log('Database setup completed successfully.');

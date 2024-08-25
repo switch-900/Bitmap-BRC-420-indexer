@@ -1,16 +1,16 @@
-// working 
-const axios = require('axios');
-const sqlite3 = require('sqlite3').verbose();
-const express = require('express');
-const routes = require('./routes');
-const winston = require('winston');
-const Joi = require('joi');
-const config = require('./config'); 
-const cors = require('cors');  // Import CORS
+import axios from 'axios';
+import sqlite3 from 'sqlite3';
+import express from 'express';
+import routes from './routes/index.mjs';
+import winston from 'winston';
+import Joi from 'joi';
+import { config } from './config.mjs';
+import cors from 'cors';
+import PQueue from 'p-queue';
 
 const app = express();
 
-app.use(cors());  
+app.use(cors());
 
 // Initialize Winston logger
 const logger = winston.createLogger({
@@ -33,7 +33,6 @@ const db = new sqlite3.Database(config.DB_PATH, (err) => {
         logger.info('Connected to the BRC-420 database.');
     }
 });
-
 
 // Joi schemas for validation
 const deploySchema = Joi.object({
@@ -60,56 +59,109 @@ const mintSchema = Joi.object({
 });
 
 const API_URL = config.API_URL;
-const API_WALLET_URL = config.API_WALLET_URL;
 const RETRY_DELAY_MS = config.RETRY_DELAY;
 const PORT = config.PORT;
-const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 let currentBlock = config.START_BLOCK;
-const MAX_RETRIES = config.MAX_RETRIES 
+let cachedLatestBlockHeight = null;
+const MAX_RETRIES = config.MAX_RETRIES;
 
+// Utility function for Axios with retry logic
+async function axiosWithRetry(config, retries = 3, delay = 1000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await axios(config);
+        } catch (error) {
+            if (i === retries - 1) throw error;
+            await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+        }
+    }
+}
 
+// Function to retrieve and cache the latest block height
+async function getAndCacheLatestBlockHeight() {
+    try {
+        const response = await axios.get(`${API_URL}/r/blockheight`);
+        
+        if (typeof response.data === 'string') {
+            cachedLatestBlockHeight = parseInt(response.data.trim(), 10);
+        } else {
+            cachedLatestBlockHeight = parseInt(response.data, 10);
+        }
+        
+        logger.info(`Latest block height cached: ${cachedLatestBlockHeight}`);
+    } catch (error) {
+        logger.error('Error retrieving latest block height:', { message: error.message });
+        throw error;
+    }
+}
+
+// Function to check if we've reached the latest block
+async function checkIfUpToDate() {
+    if (currentBlock >= cachedLatestBlockHeight) {
+        await getAndCacheLatestBlockHeight();  // Update the cached latest block height
+        if (currentBlock >= cachedLatestBlockHeight) {
+            logger.info("Up to date with the blockchain. Switching to periodic checking.");
+            return true;  // We are up to date
+        }
+    }
+    return false;
+}
 
 async function validateDeployData(deployData) {
     const { error } = deploySchema.validate(deployData);
     if (error) {
-        // Logging the error using Winston
         logger.error('Deploy data validation failed:', { message: error.details });
         return false;
     }
     logger.info('Deploy data validation successful.');
     return true;
 }
+
 // Function to check if the API is available
 async function isApiAvailable() {
     try {
-        const response = await axios.get(`${API_WALLET_URL}/health-check`);
-        return response.status === 200;
+        // Assuming this endpoint is used to get the latest block height
+        const response = await axios.get(`${API_URL}/r/blockheight`);
+        
+        // Check if the response contains the block height and it's a valid number
+        const latestBlockHeight = parseInt(response.data.trim(), 10);
+        if (!isNaN(latestBlockHeight)) {
+            logger.info(`API is available. Latest block height: ${latestBlockHeight}`);
+            return true;
+        } else {
+            logger.error('API health check failed: Invalid block height returned.');
+            return false;
+        }
     } catch (error) {
         logger.error('API health check failed:', { message: error.message });
         return false;
     }
 }
+
+
 // Function to pause processing until the API is available
 async function waitForApiRecovery() {
     let apiAvailable = false;
     let retryDelay = RETRY_DELAY_MS;
 
     while (!apiAvailable) {
-        logger.info('Waiting for API to become available...');
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        logger.info('Checking if API is available...');
         apiAvailable = await isApiAvailable();
 
         if (!apiAvailable) {
             logger.info('API still unavailable. Retrying...');
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
             retryDelay *= 2;
             if (retryDelay > 60000) {
-                retryDelay = 60000;
+                retryDelay = 60000;  // Cap the retry delay at 60 seconds
             }
         }
     }
 
-    logger.info('API is now available. Resuming mint processing.');
+    logger.info('API is now available. Resuming processing.');
 }
+
+
 // Function to save or update a wallet with Winston logging
 function saveOrUpdateWallet(inscriptionId, address, type) {
     const sqlInsert = `INSERT INTO wallets (inscription_id, address, type, updated_at)
@@ -126,6 +178,7 @@ function saveOrUpdateWallet(inscriptionId, address, type) {
         }
     });
 }
+
 // Function to save mint inscription with Winston logging
 function saveMint(mintData) {
     const { error } = mintSchema.validate(mintData);
@@ -150,23 +203,25 @@ function saveMint(mintData) {
       }
     });
 }
+
 // Function to log block in error table with Winston logging
 function logErrorBlock(blockHeight) {
     const sql = `INSERT OR REPLACE INTO error_blocks (block_height, retry_at)
                VALUES (?, ?)`;
-    const retryAtBlock = blockHeight + RETRY_BLOCK_DELAY;
+    const retryAtBlock = blockHeight + config.RETRY_BLOCK_DELAY;
 
     db.run(sql, [blockHeight, retryAtBlock], (err) => {
         if (err) {
             logger.error('Error logging error block:', { message: err.message });
         } else {
-            logger.info(`Block ${blockHeight} logged for retry after ${RETRY_BLOCK_DELAY} blocks.`);
+            logger.info(`Block ${blockHeight} logged for retry after ${config.RETRY_BLOCK_DELAY} blocks.`);
         }
     });
 }
+
 // Function to retry failed blocks with Winston logging
 async function retryFailedBlocks(currentBlockHeight) {
-    const retryBlockHeight = currentBlockHeight - RETRY_BLOCK_DELAY;
+    const retryBlockHeight = currentBlockHeight - config.RETRY_BLOCK_DELAY;
 
     db.all("SELECT block_height FROM error_blocks WHERE retry_at <= ?", [retryBlockHeight], async (err, rows) => {
         if (err) {
@@ -188,6 +243,7 @@ async function retryFailedBlocks(currentBlockHeight) {
         }
     });
 }
+
 // Function to save deploy inscription with Joi validation and Winston logging
 async function saveDeploy(deployData) {
     const { error } = deploySchema.validate(deployData);
@@ -215,9 +271,9 @@ async function saveDeploy(deployData) {
         });
     });
 }
+
 // Function to retrieve a deploy inscription by its ID from the database with Winston logging
 async function getDeployById(deployId) {
-    // Check if the deploy inscription is already in the cache
     const cacheKey = `deploy:${deployId}`;
     const cachedDeploy = getFromCache(cacheKey);
 
@@ -235,8 +291,7 @@ async function getDeployById(deployId) {
             } else {
                 if (row) {
                     logger.info(`Deploy found for ID ${deployId}:`, { deploy: row });
-                    // Cache the deploy inscription
-                    setInCache(cacheKey, row);
+                    setInCache(cacheKey, row); // Cache the result
                 } else {
                     logger.info(`No deploy found for ID ${deployId}`);
                 }
@@ -245,12 +300,15 @@ async function getDeployById(deployId) {
         });
     });
 }
+
 // Function to get mint address with Winston logging
 async function getMintAddress(inscriptionId) {
     try {
         const txId = convertInscriptionIdToTxId(inscriptionId);
         logger.info(`Fetching output for transaction ID: ${txId}`);
-        const outputRes = await axios.get(`${API_URL}/output/${txId}`, {
+        const outputRes = await axiosWithRetry({
+            url: `${API_URL}/output/${txId}`,
+            method: 'get',
             headers: { 'Accept': 'application/json' }
         });
         logger.info(`Output API response:`, { data: outputRes.data });
@@ -266,6 +324,7 @@ async function getMintAddress(inscriptionId) {
         return null;
     }
 }
+
 // Updated function to validate royalty payment with retry mechanism and Winston logging
 async function validateRoyaltyPayment(deployInscription, mintAddress) {
     let retryCount = 0;
@@ -273,7 +332,7 @@ async function validateRoyaltyPayment(deployInscription, mintAddress) {
     while (retryCount < MAX_RETRIES) {
         try {
             logger.info(`Validating royalty payment from ${mintAddress} to ${deployInscription.deployer_address}, attempt ${retryCount + 1}`);
-            const txsRes = await axios.get(`${API_WALLET_URL}/address/${mintAddress}/txs`);
+            const txsRes = await axios.get(`${config.API_WALLET_URL}/address/${mintAddress}/txs`);
             const transactions = txsRes.data;
 
             logger.info(`Retrieved ${transactions.length} transactions for address ${mintAddress}`);
@@ -312,10 +371,12 @@ async function validateRoyaltyPayment(deployInscription, mintAddress) {
     await waitForApiRecovery(); // Pause until API is available
     return false;
 }
+
 // Function to convert inscription ID to transaction ID
 function convertInscriptionIdToTxId(inscriptionId) {
     return `${inscriptionId.slice(0, -2)}:${inscriptionId.slice(-1)}`;
 }
+
 // Function to get the deployer's address from the output with Winston logging
 async function getDeployerAddress(inscriptionId) {
     try {
@@ -334,6 +395,7 @@ async function getDeployerAddress(inscriptionId) {
         return null;
     }
 }
+
 // Function to get current mint count for a specific deploy ID
 async function getCurrentMintCount(deployId) {
     return new Promise((resolve, reject) => {
@@ -348,6 +410,7 @@ async function getCurrentMintCount(deployId) {
         });
     });
 }
+
 // Function to validate mint data with enhanced error handling using Joi and Winston logging
 async function validateMintData(mintId, deployInscription, mintAddress, transactionId) {
     try {
@@ -372,7 +435,8 @@ async function validateMintData(mintId, deployInscription, mintAddress, transact
         return false;
     }
 }
-// Use validateDeployData in your processInscription function
+
+// Function to process an inscription
 async function processInscription(inscriptionId, blockHeight) {
     try {
         const res = await axios.get(`${API_URL}/content/${inscriptionId}`, {
@@ -464,7 +528,9 @@ async function processInscription(inscriptionId, blockHeight) {
         logErrorBlock(blockHeight);
     }
 }
+
 const cache = {};
+
 // Helper function to get data from the cache
 function getFromCache(key) {
     if (cache[key] && (Date.now() < cache[key].expiry)) {
@@ -479,13 +545,8 @@ function setInCache(key, value, ttl = 60000) { // ttl is time-to-live in ms
     cache[key] = { value, expiry };
 }
 
-// Helper function to invalidate cache
-function invalidateCache(key) {
-    delete cache[key];
-}
-
+// Function to get MIME type of an inscription
 async function getMimeType(inscriptionId) {
-    // Check if the MIME type is already in the cache
     const cacheKey = `mimeType:${inscriptionId}`;
     const cachedMimeType = getFromCache(cacheKey);
 
@@ -500,7 +561,6 @@ async function getMimeType(inscriptionId) {
         });
         const mimeType = response.headers['content-type'];
 
-        // Cache the MIME type for future use
         setInCache(cacheKey, mimeType);
 
         logger.info(`MIME type for inscription ${inscriptionId}: ${mimeType}`);
@@ -511,12 +571,30 @@ async function getMimeType(inscriptionId) {
     }
 }
 
-// Function to process a block with improved pagination and Winston logging
+// Define queues with different concurrency settings
+const bulkProcessingQueue = new PQueue({ concurrency: config.CONCURRENCY_LIMIT });  // Higher concurrency for bulk processing
+const realTimeQueue = new PQueue({ concurrency: 1 });  // Minimal concurrency for real-time processing
+
+let currentQueue = bulkProcessingQueue;  // Start with bulk processing queue
+
+async function determineQueueType() {
+    // Determine whether to use bulk processing or real-time queue
+    if (currentBlock >= cachedLatestBlockHeight) {
+        currentQueue = realTimeQueue;
+        logger.info("Switched to real-time processing.");
+    } else {
+        currentQueue = bulkProcessingQueue;
+    }
+}
+
+// Function to process a block with the current queue
 async function processBlock(blockHeight) {
     logger.info(`Processing block: ${blockHeight}`);
 
     try {
-        const response = await axios.get(`${API_URL}/block/${blockHeight}`, {
+        const response = await axiosWithRetry({
+            url: `${API_URL}/block/${blockHeight}`,
+            method: 'get',
             headers: { 'Accept': 'application/json' }
         });
 
@@ -528,7 +606,7 @@ async function processBlock(blockHeight) {
             const batchSize = 100;
             for (let i = 0; i < inscriptions.length; i += batchSize) {
                 const batch = inscriptions.slice(i, i + batchSize);
-                await processBatch(batch, blockHeight);
+                await currentQueue.add(() => processBatch(batch, blockHeight));
             }
         } else {
             logger.info(`No inscriptions found in block ${blockHeight}`);
@@ -541,57 +619,35 @@ async function processBlock(blockHeight) {
     logger.info(`Block ${blockHeight} processed.`);
 }
 
-// Function to process a batch of inscriptions with enhanced error handling and Winston logging
+// Function to process a batch of inscriptions
 async function processBatch(batch, blockHeight) {
     for (const inscriptionId of batch) {
         await processInscription(inscriptionId, blockHeight);
     }
 }
 
-async function checkExistingDeploys() {
-    return new Promise((resolve, reject) => {
-        db.all("SELECT * FROM deploys", [], (err, rows) => {
-            if (err) {
-                logger.error("Error checking existing deploys:", { message: err.message });
-                reject(err);
-            } else {
-                logger.info(`Found ${rows.length} existing deploy inscriptions:`);
-                rows.forEach(row => logger.info(JSON.stringify(row)));
-                resolve(rows);
-            }
-        });
-    });
-}
-
-// Continuous block processing with retry handling
+// Start the processing loop
 async function startProcessing() {
-    logger.info("Checking existing deploy inscriptions...");
-    await checkExistingDeploys();
+    try {
+        await getAndCacheLatestBlockHeight();
 
+        while (true) {
+            // Retry any failed blocks before processing the current one
+            await retryFailedBlocks(currentBlock);
 
-    while (true) {
-        logger.info(`Starting to process block ${currentBlock}`);
-        await retryFailedBlocks(currentBlock);
-
-        db.get("SELECT block_height FROM blocks WHERE block_height = ? AND processed = 1", [currentBlock], async (err, row) => {
-            if (err) {
-                logger.error(`Error checking if block ${currentBlock} is processed:`, { message: err.message });
-            } else if (!row) {
-                await processBlock(currentBlock);
-                db.run("INSERT OR REPLACE INTO blocks (block_height, processed) VALUES (?, 1)", [currentBlock], (err) => {
-                    if (err) {
-                        logger.error(`Error marking block ${currentBlock} as processed:`, { message: err.message });
-                    } else {
-                        logger.info(`Block ${currentBlock} marked as processed.`);
-                    }
-                });
+            const upToDate = await checkIfUpToDate();
+            if (upToDate) {
+                await new Promise(r => setTimeout(r, 30000));
             } else {
-                logger.info(`Block ${currentBlock} already processed. Skipping.`);
+                logger.info(`Starting to process block ${currentBlock}`);
+                await processBlock(currentBlock);
+                currentBlock++;
             }
-        });
-
-        currentBlock++;
-        await new Promise(r => setTimeout(r, 1000));
+        }
+    } catch (error) {
+        logger.error("Error in main processing loop:", { message: error.message });
+        await waitForApiRecovery();
+        startProcessing();
     }
 }
 
@@ -603,5 +659,18 @@ app.listen(PORT, () => {
     logger.info(`Server is running on http://localhost:${PORT}`);
     startProcessing().catch(error => {
         logger.error("Error in main processing loop:", { message: error.message });
+    });
+});
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+    logger.info("Shutting down server...");
+    db.close((err) => {
+        if (err) {
+            logger.error('Error closing database:', { message: err.message });
+        } else {
+            logger.info('Database connection closed.');
+        }
+        process.exit(0);
     });
 });
