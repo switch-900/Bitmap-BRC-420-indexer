@@ -16,9 +16,14 @@ RUN rm -rf umbrel-community-app-store/ *.md
 
 FROM node:18-alpine
 
-# Create app user
-RUN addgroup -g 1000 app && \
-    adduser -u 1000 -G app -s /bin/sh -D app
+# Create app user with UID 1000 (use existing group if GID 1000 exists)
+RUN if getent group 1000 >/dev/null 2>&1; then \
+        GROUP_NAME=$(getent group 1000 | cut -d: -f1); \
+        adduser -u 1000 -G $GROUP_NAME -s /bin/sh -D app; \
+    else \
+        addgroup -g 1000 app && \
+        adduser -u 1000 -G app -s /bin/sh -D app; \
+    fi
 
 # Install sqlite3 and other dependencies
 RUN apk add --no-cache sqlite
