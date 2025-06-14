@@ -153,7 +153,7 @@
         </div>
     </div>
     <script>
-        const API_URL = 'http://localhost:5000/api';  // Base URL for API
+        const API_URL = `${window.location.protocol}//${window.location.host}/api`;  // Base URL for API
         let currentPage = 1;
         let isLoading = false;
         let lastQuery = '';

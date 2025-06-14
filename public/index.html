@@ -144,8 +144,7 @@
         <div id="deployContainer" class="deploy-container"></div>
         <div id="loading" class="loading">Loading...</div>
     </div>
-    <script>
-        const API_URL = 'http://localhost:5000/api';  // Base URL for API
+    <script>        const API_URL = `${window.location.protocol}//${window.location.host}/api`;  // Base URL for API
         const CONTENT_URL = 'https://ordinals.com';   // Base URL for content
         let currentPage = 1;
         let sortOrder = 'desc';  // 'desc' for latest first, 'asc' for oldest first

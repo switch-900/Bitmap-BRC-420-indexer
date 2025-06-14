@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+*.md
+umbrel-community-app-store
+.env
+logs
+db/*.sqlite
+db/*.sqlite3
+.DS_Store
+Thumbs.db
+coverage
+.nyc_output
+.vscode
+.idea

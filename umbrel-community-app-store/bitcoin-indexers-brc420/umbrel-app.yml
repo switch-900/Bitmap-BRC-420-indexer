@@ -1,0 +1,47 @@
+manifestVersion: 1
+id: bitcoin-indexers-brc420
+name: BRC-420 & Bitmap Indexer
+tagline: Index and explore BRC-420 inscriptions and Bitcoin bitmaps
+icon: https://raw.githubusercontent.com/bitcoin/bitcoin/master/share/pixmaps/bitcoin128.png
+category: Bitcoin
+version: "1.0.0"
+port: 8080
+description: >-
+  A comprehensive indexer for BRC-420 inscriptions and Bitcoin bitmaps. This application continuously monitors the Bitcoin blockchain to identify, validate, and store BRC-420 deploy and mint inscriptions as well as bitmap inscriptions.
+
+
+  Features:
+  - Real-time indexing of BRC-420 deploys and mints
+  - Bitmap inscription tracking and validation
+  - Robust validation process with royalty payment verification
+  - RESTful API for querying indexed data
+  - Web interface for browsing inscriptions
+  - Error recovery and retry mechanisms
+  - Wallet ownership tracking
+
+
+  The indexer validates all inscriptions according to BRC-420 standards and provides a clean web interface for exploring the data. It connects directly to your Umbrel's Bitcoin Core and Ordinals services for maximum privacy and performance.
+
+developer: Switch9
+website: https://github.com/switch-900/brc-420-indexer
+submitter: Switch9
+submission: https://github.com/switch-900/brc-420-indexer
+repo: https://github.com/switch-900/brc-420-indexer
+support: https://github.com/switch-900/brc-420-indexer/issues
+gallery:
+  - https://i.imgur.com/placeholder1.png
+  - https://i.imgur.com/placeholder2.png
+releaseNotes: >-
+  Initial release of BRC-420 & Bitmap Indexer:
+  - Complete BRC-420 inscription indexing
+  - Bitmap inscription support
+  - Web interface for browsing data
+  - RESTful API endpoints
+  - Automatic error recovery
+  - Local Umbrel Bitcoin Core & Ordinals integration
+dependencies:
+  - bitcoin
+  - ordinals
+path: ""
+defaultUsername: ""
+defaultPassword: ""

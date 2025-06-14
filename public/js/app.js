@@ -1,4 +1,5 @@
-const API_URL = 'http://localhost:5000/api';  // Base URL for API
+// Dynamically determine API URL based on current host
+const API_URL = `${window.location.protocol}//${window.location.host}/api`;
 const CONTENT_URL = 'https://ordinals.com';  // Base URL for content
 
 document.addEventListener('DOMContentLoaded', function () {

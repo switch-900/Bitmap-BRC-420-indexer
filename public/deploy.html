@@ -169,8 +169,7 @@
         <div class="mints-container" id="mintsContainer"></div>
     </div>
 
-    <script>
-        const API_URL = 'http://localhost:5000/api';
+    <script>        const API_URL = `${window.location.protocol}//${window.location.host}/api`;
         const CONTENT_URL = 'https://ordinals.com';
         const urlParams = new URLSearchParams(window.location.search);
         const deployId = urlParams.get('id');

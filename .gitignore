@@ -32,3 +32,16 @@ Thumbs.db
 
 # Optional npm cache directory
 .npm/
+
+# Temporary files and old documentation
+UMBREL_LOCAL_CONNECTION.md
+SETUP_COMPLETE.md
+umbrelApp.md
+UMBREL_INTEGRATION.md
+
+# Nested git repositories
+umbrel-community-app-store/.git/
+
+# Build artifacts
+*.tar.gz
+*.zip
