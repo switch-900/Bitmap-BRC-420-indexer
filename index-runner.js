@@ -443,15 +443,13 @@ async function processInscription(inscriptionId, blockHeight) {
 
 // Function to process a block
 async function processBlock(blockHeight) {
-    processingLogger.info(`Processing block: ${blockHeight}`);
-
-    try {
-        const response = await axios.get(`${API_URL}/block/${blockHeight}`, {
+    processingLogger.info(`Processing block: ${blockHeight}`);    try {
+        const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
             headers: { 'Accept': 'application/json' },
             timeout: 10000
         });
 
-        const { inscriptions } = response.data;
+        const inscriptions = response.data;
 
         if (Array.isArray(inscriptions) && inscriptions.length > 0) {
             processingLogger.info(`Total inscriptions found in block ${blockHeight}: ${inscriptions.length}`);
