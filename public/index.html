@@ -143,15 +143,70 @@
      
         <div id="deployContainer" class="deploy-container"></div>
         <div id="loading" class="loading">Loading...</div>
-    </div>
-    <script>        const API_URL = `${window.location.protocol}//${window.location.host}/api`;  // Base URL for API
-        const CONTENT_URL = 'https://ordinals.com';   // Base URL for content
+    </div>    <script>        const API_URL = `${window.location.protocol}//${window.location.host}/api`;  // Base URL for API
+        
+        // Try to detect local Ordinals service, fallback to ordinals.com
+        let CONTENT_URL = 'https://ordinals.com';  // Default fallback        // Function to detect local Ordinals service
+        async function detectLocalOrdinals() {
+            try {
+                // First, try to get config from our own API
+                const configResponse = await fetch(`${API_URL}/config`);
+                if (configResponse.ok) {
+                    const config = await configResponse.json();
+                    if (config.localOrdinalsUrl) {
+                        // Test if the local Ordinals service is actually available
+                        try {
+                            const testResponse = await fetch(`${config.localOrdinalsUrl}/status`, { 
+                                method: 'GET', 
+                                signal: AbortSignal.timeout(3000),
+                                mode: 'cors'
+                            });
+                            if (testResponse.ok) {
+                                CONTENT_URL = config.localOrdinalsUrl;
+                                console.log('Local Ordinals service detected via config:', CONTENT_URL);
+                                return;
+                            }
+                        } catch (error) {
+                            console.log('Config provided URL not accessible:', error.message);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('Could not fetch config:', error.message);
+            }
+              // Fallback: Try common local hosts (prioritize umbrel.local)
+            const localHosts = [
+                'umbrel.local:4000',     // Umbrel's standard hostname
+                `${window.location.hostname}:4000`,  // Same host as the indexer
+                'localhost:4000',
+                '127.0.0.1:4000'
+            ];
+            
+            for (const host of localHosts) {
+                try {
+                    const testUrl = `${window.location.protocol}//${host}`;
+                    const response = await fetch(`${testUrl}/status`, { 
+                        method: 'GET', 
+                        signal: AbortSignal.timeout(2000),
+                        mode: 'cors'
+                    });
+                    if (response.ok) {
+                        CONTENT_URL = testUrl;
+                        console.log('Local Ordinals service detected at:', CONTENT_URL);
+                        return;
+                    }
+                } catch (error) {
+                    // Continue to next host
+                }
+            }
+            console.log('No local Ordinals service found, using fallback:', CONTENT_URL);
+        }
         let currentPage = 1;
         let sortOrder = 'desc';  // 'desc' for latest first, 'asc' for oldest first
         let isLoading = false;
-        let lastQuery = '';
-
-        document.addEventListener('DOMContentLoaded', function () {
+        let lastQuery = '';        document.addEventListener('DOMContentLoaded', async function () {
+            // Try to detect local Ordinals service first
+            await detectLocalOrdinals();
             loadDeploys();
             window.addEventListener('scroll', handleScroll);
         });

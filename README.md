@@ -12,7 +12,8 @@ A comprehensive Bitcoin inscription indexer that runs privately on your Umbrel n
 - 🗺️ **Bitmap Support**: Tracks Bitcoin bitmap inscriptions (.bitmap format)
 - 🌐 **Modern Web Interface**: Browse indexed data with responsive UI
 - 🔌 **REST API**: Complete API for external integrations
-- 🔒 **Privacy First**: Connects only to your local Umbrel services
+- 🔒 **Privacy First**: Automatically detects and uses your local Ordinals service
+- 🚀 **Smart Content Loading**: Uses local Ordinals node for faster content preview
 - 🛡️ **Robust Validation**: Comprehensive royalty payment verification
 - 💾 **Persistent Storage**: SQLite database with automatic setup
 - 🔄 **Error Recovery**: Automatic retry mechanisms and error handling
@@ -126,8 +127,8 @@ nano .env
 ```bash
 # Required for indexing
 START_BLOCK=792435
-ORD_API_URL=http://localhost:4000/api
-BITCOIN_RPC_HOST=localhost
+ORD_API_URL=http://192.168.1.100:4000/api  # Your local Ordinals service
+BITCOIN_RPC_HOST=192.168.1.100             # Your Umbrel IP
 BITCOIN_RPC_PORT=8332
 BITCOIN_RPC_USER=your_rpc_user
 BITCOIN_RPC_PASS=your_rpc_pass
@@ -136,6 +137,16 @@ BITCOIN_RPC_PASS=your_rpc_pass
 API_URL=https://ordinals.com/api
 API_WALLET_URL=https://mempool.space/api
 ```
+
+### 🚀 Local Ordinals Detection
+
+The indexer automatically detects your local Ordinals service for faster content loading:
+
+1. **Config-based detection**: Uses your `ORD_API_URL` environment variable
+2. **Auto-discovery**: Scans common local addresses (localhost:4000, your-ip:4000)
+3. **Fallback**: Uses ordinals.com if no local service is found
+
+This means inscription previews load **much faster** when using your local node!
 
 ### Running Locally
 

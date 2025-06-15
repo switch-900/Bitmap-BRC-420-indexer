@@ -31,5 +31,19 @@ module.exports = {
     // Get the appropriate API URL based on environment
     getApiUrl() {
         return this.ORD_API_URL || this.API_URL;
+    },
+      // Get local Ordinals URL for frontend content
+    getLocalOrdinalsUrl() {
+        if (process.env.ORD_API_URL) {
+            // Extract base URL from API URL (remove /api suffix)
+            return process.env.ORD_API_URL.replace('/api', '');
+        }
+        // Use Umbrel's standard hostname first, then try other local addresses
+        const localAddresses = [
+            'http://umbrel.local:4000',
+            'http://localhost:4000',
+            'http://127.0.0.1:4000'
+        ];
+        return localAddresses[0]; // Default to umbrel.local
     }
 };

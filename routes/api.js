@@ -40,6 +40,16 @@ router.get('/health', (req, res) => {
     res.json(health);
 });
 
+// Configuration endpoint for frontend
+router.get('/config', (req, res) => {
+    const configData = {
+        localOrdinalsUrl: config.getLocalOrdinalsUrl(),
+        isUmbrelEnvironment: config.isUmbrelEnvironment(),
+        startBlock: config.START_BLOCK
+    };
+    res.json(configData);
+});
+
 // Endpoint to get deploy inscriptions by ID or name
 router.get('/deploys', (req, res) => {
     if (!db) {
