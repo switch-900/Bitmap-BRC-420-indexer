@@ -1,8 +1,25 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
+const config = require('../config');
 const router = express.Router();
 
-const db = new sqlite3.Database('./db/brc420.db');
+// Create database connection with the same path as server.js
+const dbPath = config.DB_PATH || './db/brc420.db';
+let db = null;
+
+// Initialize database connection
+try {
+    db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+            console.error('Routes: Error opening database:', err.message);
+            console.log('Routes: API endpoints will return errors until database is available');
+        } else {
+            console.log('Routes: Connected to SQLite database for API endpoints');
+        }
+    });
+} catch (error) {
+    console.error('Routes: Failed to create database connection:', error.message);
+}
 
 // Helper function for pagination
 function paginate(query, params, page = 1, limit = 20) {
@@ -13,8 +30,22 @@ function paginate(query, params, page = 1, limit = 20) {
     };
 }
 
+// Health check endpoint for API
+router.get('/health', (req, res) => {
+    const health = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        database: db ? 'connected' : 'disconnected'
+    };
+    res.json(health);
+});
+
 // Endpoint to get deploy inscriptions by ID or name
 router.get('/deploys', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const { id, name, page = 1, limit = 20 } = req.query;
     let query, params;
 
@@ -25,7 +56,7 @@ router.get('/deploys', (req, res) => {
         query = "SELECT * FROM deploys WHERE name LIKE ?";
         params = [`%${name}%`]; // Using LIKE to allow partial name matches
     } else {
-        query = "SELECT * FROM deploys";
+        query = "SELECT * FROM deploys ORDER BY block_height DESC";
         params = [];
     }
 
@@ -41,6 +72,10 @@ router.get('/deploys', (req, res) => {
 
 // Endpoint to validate a mint by mint ID
 router.get('/mint/:mint_id', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const mintId = req.params.mint_id;
 
     db.get("SELECT * FROM mints WHERE id = ?", [mintId], (err, row) => {
@@ -56,10 +91,14 @@ router.get('/mint/:mint_id', (req, res) => {
 
 // Endpoint to get mints for a specific deploy ID
 router.get('/deploy/:deploy_id/mints', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const deployId = req.params.deploy_id;
     const { page = 1, limit = 20 } = req.query;
 
-    const paginatedQuery = paginate("SELECT * FROM mints WHERE deploy_id = ?", [deployId], page, limit);
+    const paginatedQuery = paginate("SELECT * FROM mints WHERE deploy_id = ? ORDER BY block_height DESC", [deployId], page, limit);
 
     db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
         if (err) {
