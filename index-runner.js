@@ -41,46 +41,65 @@ let useLocalAPI = false;
 
 // Test if local Ordinals API is available
 async function testLocalAPIConnectivity() {
-    if (!LOCAL_API_URL) {
-        logger.info('No local API URL configured, using external API');
+    const endpoints = config.getLocalApiEndpoints();
+    
+    if (!endpoints || endpoints.length === 0) {
+        logger.info('No local API endpoints configured, using external API');
         return false;
     }
     
-    try {
-        logger.info(`Testing local API connectivity: ${LOCAL_API_URL}`);
-        // Test with a simple endpoint that should exist
-        const response = await axios.get(`${LOCAL_API_URL}/status`, {
-            timeout: 5000,
-            headers: { 'Accept': 'application/json' }
-        });
-        
-        if (response.status === 200) {
-            logger.info('Local Ordinals API is available, switching to local');
-            API_URL = LOCAL_API_URL;
-            useLocalAPI = true;
-            return true;
-        }
-    } catch (error) {
-        // Try without /api suffix in case it's not needed
+    logger.info(`Testing ${endpoints.length} local API endpoints for Ordinals service...`);
+    
+    for (const endpoint of endpoints) {
         try {
-            const baseUrl = LOCAL_API_URL.replace('/api', '');
-            logger.info(`Testing local API connectivity without /api suffix: ${baseUrl}`);
-            const response = await axios.get(`${baseUrl}/status`, {
-                timeout: 5000,
+            logger.info(`🔍 Testing: ${endpoint}`);
+            
+            // Test with a simple status endpoint first
+            try {
+                const response = await axios.get(`${endpoint}/status`, {
+                    timeout: 2000,
+                    headers: { 'Accept': 'application/json' }
+                });
+                
+                if (response.status === 200) {
+                    logger.info(`✅ Found Ordinals API at: ${endpoint} (via /status)`);
+                    API_URL = endpoint;
+                    useLocalAPI = true;
+                    return true;
+                }
+            } catch (statusError) {
+                // /status endpoint might not exist, try actual block endpoint
+                logger.debug(`Status endpoint failed for ${endpoint}: ${statusError.message}`);
+            }
+            
+            // Test with actual inscriptions endpoint
+            const response = await axios.get(`${endpoint}/inscriptions/block/792435`, {
+                timeout: 3000,
                 headers: { 'Accept': 'application/json' }
             });
             
             if (response.status === 200) {
-                logger.info('Local Ordinals API available without /api suffix, switching to local');
-                API_URL = baseUrl;
+                const count = Array.isArray(response.data) ? response.data.length : 0;
+                logger.info(`✅ Found Ordinals API at: ${endpoint} (${count} inscriptions in test block)`);
+                API_URL = endpoint;
+                useLocalAPI = true;
+                return true;
+            } else if (response.status === 404) {
+                // 404 is fine - means the endpoint exists but no inscriptions in that block
+                logger.info(`✅ Found Ordinals API at: ${endpoint} (endpoint exists, no inscriptions in test block)`);
+                API_URL = endpoint;
                 useLocalAPI = true;
                 return true;
             }
-        } catch (secondError) {
-            logger.info(`Local API not available (${error.message}), using external API: ${API_URL}`);
+            
+        } catch (error) {
+            logger.debug(`❌ Failed ${endpoint}: ${error.message}`);
+            continue;
         }
     }
     
+    logger.info('❌ No local Ordinals API found on any endpoint, using external API: https://ordinals.com');
+    logger.info('💡 To use a local Ordinals service, ensure an Ordinals app is installed and running on your Umbrel');
     return false;
 }
 
@@ -524,6 +543,16 @@ async function startProcessing() {
     logger.info("Starting Bitcoin inscription indexer...");
     logger.info(`Starting from block: ${currentBlock}`);
     logger.info(`API URL: ${API_URL}`);
+
+    // Log Umbrel environment variables for debugging
+    const umbrelVars = {
+        APP_BITCOIN_NODE_IP: process.env.APP_BITCOIN_NODE_IP,
+        APP_ORDINALS_NODE_IP: process.env.APP_ORDINALS_NODE_IP,
+        DEVICE_HOSTNAME: process.env.DEVICE_HOSTNAME,
+        DEVICE_DOMAIN_NAME: process.env.DEVICE_DOMAIN_NAME,
+        ORD_API_URL: process.env.ORD_API_URL
+    };
+    logger.info('🔍 Umbrel environment variables:', umbrelVars);
 
     while (true) {
         try {

@@ -1,8 +1,7 @@
 require('dotenv').config();
 
-module.exports = {
-    // Primary API URLs - prefer local Umbrel services if available
-    ORD_API_URL: process.env.ORD_API_URL || 'http://umbrel.local:4000',
+module.exports = {    // Primary API URLs - prefer local Umbrel services if available
+    ORD_API_URL: process.env.ORD_API_URL || null, // Will be tested dynamically
     API_URL: process.env.API_URL || 'https://ordinals.com',
     API_WALLET_URL: process.env.API_WALLET_URL || 'https://mempool.space/api',
     
@@ -32,33 +31,73 @@ module.exports = {
         // ORD_API_URL is for local services which may not be available
         return this.API_URL;
     },
-    
-    // Get local API URL for testing connectivity
+      // Get local API URL for testing connectivity
     getLocalApiUrl() {
-        let url = this.ORD_API_URL;
-        
-        // Ensure URL is properly formatted
-        if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
-            // If it's just a hostname, add http://
-            if (url.includes(':')) {
-                url = `http://${url}`;
+        // If explicitly set via environment variable, use that
+        if (process.env.ORD_API_URL) {
+            let url = process.env.ORD_API_URL;
+            // Ensure URL is properly formatted
+            if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+                // If it's just a hostname, add http://
+                if (url.includes(':')) {
+                    url = `http://${url}`;
+                }
             }
+            return url;
         }
         
-        return url;
-    },
-      // Get local Ordinals URL for frontend content
+        // Return null if no local API configured - will trigger testing of multiple endpoints
+        return null;
+    },      // Get local Ordinals URL for frontend content
     getLocalOrdinalsUrl() {
         if (process.env.ORD_API_URL) {
             // Extract base URL from API URL (remove /api suffix)
             return process.env.ORD_API_URL.replace('/api', '');
         }
-        // Use Umbrel's standard hostname first, then try other local addresses
-        const localAddresses = [
+        // Return first available endpoint
+        const endpoints = this.getLocalApiEndpoints();
+        return endpoints.length > 0 ? endpoints[0] : null;
+    },
+    
+    // Get all possible local API endpoints to test (OFFICIAL UMBREL PATTERNS)
+    getLocalApiEndpoints() {
+        const endpoints = [];
+        
+        // If explicitly configured, try that first
+        if (process.env.ORD_API_URL) {
+            endpoints.push(process.env.ORD_API_URL);
+        }
+        
+        // OFFICIAL UMBREL SERVICE NAMING PATTERN: {app-id}_{service-name}_{instance-number}
+        const officialUmbrelEndpoints = [
+            'http://ordinals_web_1:4000',      // Most likely official pattern
+            'http://ordinals_server_1:4000',   // Alternative service name
+            'http://ordinals_app_1:4000',      // Another alternative
+            'http://bitcoin-ordinals_web_1:4000',   // If app-id includes 'bitcoin-'
+            'http://bitcoin-ordinals_server_1:4000'
+        ];
+        
+        // Environment variable approach (official Umbrel pattern)
+        if (process.env.APP_ORDINALS_NODE_IP) {
+            endpoints.push(`http://${process.env.APP_ORDINALS_NODE_IP}:4000`);
+        }
+        
+        // System hostnames (from official docs)
+        if (process.env.DEVICE_HOSTNAME && process.env.DEVICE_DOMAIN_NAME) {
+            endpoints.push(`http://${process.env.DEVICE_HOSTNAME}.${process.env.DEVICE_DOMAIN_NAME}:4000`);
+        }
+        
+        // Legacy/fallback endpoints
+        const fallbackEndpoints = [
             'http://umbrel.local:4000',
+            'http://10.21.21.9:4000',       // Common Umbrel IP
+            'http://172.17.0.1:4000',       // Docker gateway
             'http://localhost:4000',
             'http://127.0.0.1:4000'
         ];
-        return localAddresses[0]; // Default to umbrel.local
+        
+        // Combine all endpoints with official patterns first
+        endpoints.push(...officialUmbrelEndpoints, ...fallbackEndpoints);
+        return [...new Set(endpoints)]; // Remove duplicates
     }
 };
