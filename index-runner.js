@@ -2,7 +2,6 @@ const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
 const winston = require('winston');
 const Joi = require('joi');
-const os = require('os');
 const config = require('./config');
 
 // Initialize Winston logger
@@ -32,7 +31,6 @@ const processingLogger = winston.createLogger({
 
 // Configuration constants
 let API_URL = config.getApiUrl(); // Default to external API
-const LOCAL_API_URL = config.getLocalApiUrl();
 const START_BLOCK = config.START_BLOCK;
 const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 
@@ -378,75 +376,7 @@ function isValidBitmapFormat(content) {
     return bitmapRegex.test(content.trim());
 }
 
-// Function to extract sat number from inscription metadata
-async function getSatNumber(inscriptionId) {
-    try {
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
-            headers: { 'Accept': 'application/json' },
-            timeout: 10000
-        });
-        
-        const metadata = response.data;
-        if (metadata && metadata.sat !== undefined) {
-            logger.info(`Sat number extracted for ${inscriptionId}: ${metadata.sat}`);
-            return metadata.sat;
-        } else {
-            logger.warn(`No sat number found in metadata for ${inscriptionId}`);
-            return null;
-        }
-    } catch (error) {
-        logger.error(`Error extracting sat number for ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
-}
 
-// Function to generate transaction pattern array for bitmap visualization
-async function generateBitmapPattern(bitmapNumber, blockHeight) {
-    try {
-        // This is a simplified pattern generation - in a real implementation,
-        // you would analyze actual transactions within the bitmap's block range
-        const response = await axios.get(`${config.API_WALLET_URL}/block/${blockHeight}`, {
-            headers: { 'Accept': 'application/json' },
-            timeout: 10000
-        });
-        
-        const blockData = response.data;
-        const transactions = blockData.tx || [];
-        
-        // Create a pattern array based on transaction data
-        const pattern = transactions.map((tx, index) => ({
-            txIndex: index,
-            txId: tx.txid || tx,
-            size: typeof tx === 'object' ? (tx.size || 250) : 250,
-            fee: typeof tx === 'object' ? (tx.fee || 1000) : 1000
-        }));
-        
-        // Store the pattern in the database
-        const patternData = JSON.stringify(pattern);
-        const stmt = db.prepare(`INSERT OR REPLACE INTO bitmap_patterns 
-            (bitmap_number, block_height, pattern_data, transaction_count, generated_at) 
-            VALUES (?, ?, ?, ?, ?)`);
-            
-        stmt.run([
-            bitmapNumber,
-            blockHeight,
-            patternData,
-            pattern.length,
-            Date.now()
-        ], function(err) {
-            if (err) {
-                logger.error(`Error saving bitmap pattern for ${bitmapNumber}:`, { message: err.message });
-            } else {
-                logger.info(`Bitmap pattern generated and saved for ${bitmapNumber} at block ${blockHeight}`);
-            }
-        });
-        
-        return pattern;
-    } catch (error) {
-        logger.error(`Error generating bitmap pattern for ${bitmapNumber}:`, { message: error.message });
-        return null;
-    }
-}
 
 // Function to process inscription
 async function processInscription(inscriptionId, blockHeight) {
@@ -549,9 +479,7 @@ async function processBlock(blockHeight) {
             
             let mintCount = 0;
             let deployCount = 0;
-            let bitmapCount = 0;
-
-            // Process inscriptions sequentially to avoid rate limiting
+            let bitmapCount = 0;            // Process inscriptions sequentially - no rate limiting needed for local API
             for (const inscriptionId of inscriptions) {
                 try {
                     const result = await processInscription(inscriptionId, blockHeight);
@@ -560,12 +488,10 @@ async function processBlock(blockHeight) {
                         else if (result.type === 'deploy') deployCount++;
                         else if (result.type === 'bitmap') bitmapCount++;
                     }
-                    // Small delay to respect API rate limits
-                    await new Promise(resolve => setTimeout(resolve, 100));
                 } catch (error) {
                     logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
                 }
-            }            processingLogger.info(`Block ${blockHeight} processed. Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}`);
+            }processingLogger.info(`Block ${blockHeight} processed. Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}`);
         } else {
             processingLogger.info(`No inscriptions found in block ${blockHeight}`);
         }
