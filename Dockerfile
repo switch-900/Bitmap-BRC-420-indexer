@@ -30,6 +30,10 @@ WORKDIR /app
 # Copy built application
 COPY --from=builder --chown=1000:1000 /build .
 
+# Copy entrypoint script
+COPY --chown=1000:1000 entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Create necessary directories  
 RUN mkdir -p /app/db /app/logs && \
     chown -R 1000:1000 /app
@@ -39,6 +43,9 @@ EXPOSE 8080
 
 # Switch to user with UID 1000 (required for Umbrel)
 USER 1000
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
