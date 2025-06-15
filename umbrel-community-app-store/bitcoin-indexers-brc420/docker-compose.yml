@@ -34,4 +34,4 @@ services:
       RETRY_DELAY: 5000
       CONCURRENCY_LIMIT: 5
       RUN_INDEXER: true
-    command: sh -c "node db/setup.js && node server.js"
+    command: ["node", "server.js"]
