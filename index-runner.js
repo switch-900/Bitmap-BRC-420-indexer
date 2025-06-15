@@ -48,7 +48,8 @@ async function testLocalAPIConnectivity() {
     
     try {
         logger.info(`Testing local API connectivity: ${LOCAL_API_URL}`);
-        const response = await axios.get(`${LOCAL_API_URL}/block/1`, {
+        // Test with a simple endpoint that should exist
+        const response = await axios.get(`${LOCAL_API_URL}/status`, {
             timeout: 5000,
             headers: { 'Accept': 'application/json' }
         });
@@ -60,7 +61,24 @@ async function testLocalAPIConnectivity() {
             return true;
         }
     } catch (error) {
-        logger.info(`Local API not available (${error.message}), using external API: ${API_URL}`);
+        // Try without /api suffix in case it's not needed
+        try {
+            const baseUrl = LOCAL_API_URL.replace('/api', '');
+            logger.info(`Testing local API connectivity without /api suffix: ${baseUrl}`);
+            const response = await axios.get(`${baseUrl}/status`, {
+                timeout: 5000,
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            if (response.status === 200) {
+                logger.info('Local Ordinals API available without /api suffix, switching to local');
+                API_URL = baseUrl;
+                useLocalAPI = true;
+                return true;
+            }
+        } catch (secondError) {
+            logger.info(`Local API not available (${error.message}), using external API: ${API_URL}`);
+        }
     }
     
     return false;
