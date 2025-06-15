@@ -534,13 +534,15 @@ async function processInscription(inscriptionId, blockHeight) {
 // Function to process a block
 async function processBlock(blockHeight) {
     processingLogger.info(`Processing block: ${blockHeight}`);
-    try {
-        const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
+    try {        const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
             headers: { 'Accept': 'application/json' },
             timeout: 10000
         });
 
-        const inscriptions = response.data;
+        const responseData = response.data;
+        
+        // Handle both array format (old API) and object format (new API with pagination)
+        const inscriptions = Array.isArray(responseData) ? responseData : (responseData.ids || []);
 
         if (Array.isArray(inscriptions) && inscriptions.length > 0) {
             processingLogger.info(`Total inscriptions found in block ${blockHeight}: ${inscriptions.length}`);
