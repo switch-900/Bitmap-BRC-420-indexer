@@ -1,11 +1,12 @@
-# 🔧 QUICK FIX DEPLOYMENT - Database Permissions Fixed
+# 🔧 AUTOMATIC PERMISSION FIX - No Manual Steps Required!
 
 ## 🎯 What We Fixed
 
-1. **✅ Database Permissions**: Added proper directory permissions and error handling
-2. **✅ Server Stability**: Prevent crashes when database can't be opened 
-3. **✅ Fallback Handling**: Continue running web server even with database issues
-4. **✅ Better Logging**: More detailed error messages for troubleshooting
+1. **✅ Automatic Directory Permissions**: Added entrypoint script to handle permissions automatically
+2. **✅ User Specification**: Explicit `user: "1000:1000"` in docker-compose.yml  
+3. **✅ Server Stability**: Prevent crashes when database can't be opened 
+4. **✅ Fallback Handling**: Continue running web server even with database issues
+5. **✅ Better Logging**: More detailed error messages for troubleshooting
 
 ## 🚀 Deploy Latest Fix
 
@@ -18,29 +19,25 @@ ssh umbrel@umbrel.local
 Then execute this command on Umbrel:
 
 ```bash
-# Pull latest Docker image and restart app
+# Pull latest Docker image and restart app (no manual permission fixes needed!)
 docker pull ghcr.io/switch-900/brc-420-indexer:latest && \
-docker stop bitcoin-indexers-brc420_web_1 && \
-docker rm bitcoin-indexers-brc420_web_1 && \
-cd ~/umbrel/app-data/bitcoin-indexers-brc420 && \
-sudo chown -R 1000:1000 data/ logs/ && \
 ~/umbrel/scripts/app restart bitcoin-indexers-brc420
 ```
 
 ## 🔍 What This Command Does:
 
-1. **Pull latest image** with database permission fixes
-2. **Stop and remove** the old container
-3. **Fix directory permissions** on Umbrel host (1000:1000 for user)
-4. **Restart the app** with new configuration
+1. **Pull latest image** with automatic permission handling
+2. **Restart the app** with new entrypoint script that sets up directories
 
 ## ✅ Expected Result:
 
 You should see:
+- ✅ Entrypoint script setting up directories automatically
 - ✅ Database directory creation with proper permissions
 - ✅ Web server staying running (no more crashes)
 - ✅ App accessible through Umbrel dashboard
 - ✅ No more `SQLITE_CANTOPEN` errors
+- ✅ **No manual permission fixing required by users!**
 
 ## 🌐 Access Your App:
 
