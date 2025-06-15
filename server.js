@@ -297,13 +297,42 @@ async function startServer() {
     app.use((err, req, res, next) => {
         console.error('Unhandled error:', err);
         res.status(500).json({ error: 'Internal server error' });
-    });
-
-    // Start the server
+    });    // Start the server
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`BRC-420 Indexer web server running on http://0.0.0.0:${PORT}`);
         console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
+        console.log(`RUN_INDEXER: ${config.RUN_INDEXER}`);
+        
+        // Start the indexer process if enabled
+        if (config.RUN_INDEXER) {
+            console.log('Starting Bitcoin inscription indexer process...');
+            setTimeout(() => {
+                startIndexerProcess().catch(error => {
+                    console.error('Error starting indexer process:', error);
+                });
+            }, 2000); // Wait 2 seconds for server to fully start
+        } else {
+            console.log('Indexer process disabled (RUN_INDEXER=false)');
+        }    });
+}
+
+// Function to start the indexer process
+async function startIndexerProcess() {
+    console.log('Starting indexer process...');
+    console.log(`Starting from block: ${config.START_BLOCK}`);
+    console.log(`API URL: ${config.getApiUrl()}`);
+    
+    try {        // Import and run the indexer
+        const indexer = require('./index-runner.js');
+        console.log('Starting Bitcoin inscription indexer...');
+        await indexer.startIndexer();
+    } catch (error) {
+        console.error('Error starting indexer:', error.message);
+        console.log('Retrying indexer in 30 seconds...');
+        setTimeout(() => {
+            startIndexerProcess().catch(console.error);
+        }, 30000);
+    }
 }
 
 // Start the server
