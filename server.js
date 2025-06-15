@@ -14,9 +14,23 @@ function initializeDatabase() {
     const DB_PATH = config.DB_PATH || './db/brc420.db';
     const dbDir = path.dirname(DB_PATH);
 
-    // Ensure database directory exists
+    // Ensure database directory exists with proper permissions
     if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
+        fs.mkdirSync(dbDir, { recursive: true, mode: 0o755 });
+    }
+
+    // Check if we can write to the directory
+    try {
+        fs.accessSync(dbDir, fs.constants.W_OK);
+        console.log('Database directory is writable:', dbDir);
+    } catch (err) {
+        console.error('Cannot write to database directory:', dbDir, err.message);
+        // Try to create a fallback location
+        const fallbackPath = path.join(__dirname, 'db');
+        if (!fs.existsSync(fallbackPath)) {
+            fs.mkdirSync(fallbackPath, { recursive: true, mode: 0o755 });
+        }
+        console.log('Using fallback database path:', fallbackPath);
     }
 
     console.log('Initializing database at:', DB_PATH);
@@ -24,7 +38,8 @@ function initializeDatabase() {
     const db = new sqlite3.Database(DB_PATH, (err) => {
         if (err) {
             console.error('Error opening database:', err.message);
-            process.exit(1);
+            console.log('Database initialization failed, but continuing to start web server...');
+            return; // Don't exit, just continue without database for now
         }
         console.log('Connected to SQLite database for setup');
     });
@@ -156,9 +171,7 @@ function initializeDatabase() {
                 }
             });
         });
-    });
-
-    db.close((err) => {
+    });    db.close((err) => {
         if (err) {
             console.error('Error closing database:', err.message);
         } else {
@@ -167,8 +180,13 @@ function initializeDatabase() {
     });
 }
 
-// Initialize database on startup
-initializeDatabase();
+// Initialize database on startup with error handling
+try {
+    initializeDatabase();
+} catch (error) {
+    console.error('Database initialization failed:', error.message);
+    console.log('Continuing without database - web interface will still be available');
+}
 
 // Enable CORS
 app.use(cors());
