@@ -60,15 +60,15 @@ db.serialize(() => {
         } else {
             console.log('Mints table created or already exists');
         }
-    });
-
-    // Create bitmaps table
+    });    // Create bitmaps table
     db.run(`CREATE TABLE IF NOT EXISTS bitmaps (
         inscription_id TEXT PRIMARY KEY,
         bitmap_number INTEGER NOT NULL,
         content TEXT NOT NULL,
         address TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
         timestamp INTEGER NOT NULL,
+        sat INTEGER,
         wallet TEXT,
         UNIQUE(inscription_id),
         UNIQUE(bitmap_number)
@@ -77,6 +77,24 @@ db.serialize(() => {
             console.error('Error creating bitmaps table:', err.message);
         } else {
             console.log('Bitmaps table created or already exists');
+        }
+    });
+
+    // Create bitmap_patterns table for storing transaction pattern arrays
+    db.run(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bitmap_number INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        pattern_data TEXT NOT NULL,
+        transaction_count INTEGER NOT NULL,
+        generated_at INTEGER NOT NULL,
+        FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number),
+        UNIQUE(bitmap_number, block_height)
+    )`, (err) => {
+        if (err) {
+            console.error('Error creating bitmap_patterns table:', err.message);
+        } else {
+            console.log('Bitmap patterns table created or already exists');
         }
     });
 
@@ -121,17 +139,60 @@ db.serialize(() => {
             console.error('Error creating error_blocks table:', err.message);
         } else {
             console.log('Error blocks table created or already exists');
+        }    });    // Migration: Add block_height column to bitmaps table if it doesn't exist
+    db.run(`PRAGMA table_info(bitmaps)`, (err, rows) => {
+        if (err) {
+            console.error('Error checking bitmaps table schema:', err.message);
+        } else {
+            // Check if block_height column exists
+            db.all(`PRAGMA table_info(bitmaps)`, (err, columns) => {
+                if (err) {
+                    console.error('Error getting bitmaps table info:', err.message);
+                    return;
+                }
+                
+                const hasBlockHeight = columns.some(col => col.name === 'block_height');
+                const hasSat = columns.some(col => col.name === 'sat');
+                
+                if (!hasBlockHeight) {
+                    console.log('Adding missing block_height column to bitmaps table...');
+                    db.run(`ALTER TABLE bitmaps ADD COLUMN block_height INTEGER NOT NULL DEFAULT 0`, (err) => {
+                        if (err) {
+                            console.error('Error adding block_height column to bitmaps:', err.message);
+                        } else {
+                            console.log('Successfully added block_height column to bitmaps table');
+                        }
+                    });
+                } else {
+                    console.log('Bitmaps table already has block_height column');
+                }
+                
+                if (!hasSat) {
+                    console.log('Adding missing sat column to bitmaps table...');
+                    db.run(`ALTER TABLE bitmaps ADD COLUMN sat INTEGER`, (err) => {
+                        if (err) {
+                            console.error('Error adding sat column to bitmaps:', err.message);
+                        } else {
+                            console.log('Successfully added sat column to bitmaps table');
+                        }
+                    });
+                } else {
+                    console.log('Bitmaps table already has sat column');
+                }
+            });
         }
-    });
-
-    // Create indexes for better performance
+    });    // Create indexes for better performance
     const indexes = [
         'CREATE INDEX IF NOT EXISTS idx_deploys_block_height ON deploys(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_deploys_name ON deploys(name)',
         'CREATE INDEX IF NOT EXISTS idx_mints_deploy_id ON mints(deploy_id)',
         'CREATE INDEX IF NOT EXISTS idx_mints_block_height ON mints(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_bitmaps_bitmap_number ON bitmaps(bitmap_number)',
+        'CREATE INDEX IF NOT EXISTS idx_bitmaps_block_height ON bitmaps(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_bitmaps_address ON bitmaps(address)',
+        'CREATE INDEX IF NOT EXISTS idx_bitmaps_sat ON bitmaps(sat)',
+        'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
+        'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_block_height ON bitmap_patterns(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
         'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
         'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',

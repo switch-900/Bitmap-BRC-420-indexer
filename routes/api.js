@@ -313,8 +313,140 @@ router.get('/bitmaps', (req, res) => {
     });
 });
 
+// Endpoint to get bitmap pattern data for visualization
+router.get('/bitmap/:bitmap_number/pattern', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const bitmapNumber = req.params.bitmap_number;
 
+    db.get("SELECT * FROM bitmap_patterns WHERE bitmap_number = ?", [bitmapNumber], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Pattern not found for this bitmap" });
+        }
+          // Parse the pattern data JSON
+        try {
+            const patternData = JSON.parse(row.pattern_data);
+            
+            // Handle both old and new pattern data formats
+            let responseData = {
+                bitmap_number: row.bitmap_number,
+                block_height: row.block_height,
+                transaction_count: row.transaction_count,
+                generated_at: row.generated_at
+            };
+              // New enhanced format with pattern string and txList
+            if (patternData.pattern && patternData.txList) {
+                responseData.pattern = patternData.pattern; // String like "554433221"
+                responseData.txList = patternData.txList; // Array like [5,5,4,4,3,3,2,2,1]
+                responseData.squareSizes = patternData.txList; // Backward compatibility
+                responseData.transactions = patternData.transactions; // Detailed transaction data
+            } else if (patternData.pattern && patternData.squareSizes) {
+                // Handle old squareSizes naming for backward compatibility
+                responseData.pattern = patternData.pattern;
+                responseData.txList = patternData.squareSizes;
+                responseData.squareSizes = patternData.squareSizes;
+                responseData.transactions = patternData.transactions;
+            } else {
+                // Old format - convert to new format for compatibility
+                responseData.pattern = null;
+                responseData.txList = [];
+                responseData.squareSizes = [];
+                responseData.transactions = patternData; // Old format was just transaction array
+            }
+            
+            return res.json(responseData);
+        } catch (parseErr) {
+            return res.status(500).json({ error: 'Invalid pattern data format' });
+        }
+    });
+});
 
+// Endpoint to get enhanced bitmap data with sat numbers
+router.get('/bitmaps/enhanced', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
 
+    const query = `
+        SELECT 
+            b.*,
+            bp.pattern_data,
+            bp.transaction_count,
+            bp.generated_at as pattern_generated_at
+        FROM bitmaps b
+        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
+        ORDER BY b.bitmap_number DESC
+        LIMIT ? OFFSET ?
+    `;
+
+    db.all(query, [limit, offset], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+          // Parse pattern data for each row
+        const enhancedRows = rows.map(row => {
+            if (row.pattern_data) {
+                try {
+                    const patternData = JSON.parse(row.pattern_data);
+                      // Handle both old and new pattern data formats
+                    if (patternData.pattern && patternData.txList) {
+                        // New enhanced format with txList
+                        row.pattern = patternData.pattern; // String like "554433221"
+                        row.txList = patternData.txList; // Array like [5,5,4,4,3,3,2,2,1]
+                        row.squareSizes = patternData.txList; // Backward compatibility
+                        row.transactions = patternData.transactions; // Detailed transaction data
+                    } else if (patternData.pattern && patternData.squareSizes) {
+                        // Handle old squareSizes naming for backward compatibility
+                        row.pattern = patternData.pattern;
+                        row.txList = patternData.squareSizes;
+                        row.squareSizes = patternData.squareSizes;
+                        row.transactions = patternData.transactions;
+                    } else {
+                        // Old format - just set as transactions for compatibility
+                        row.pattern = null;
+                        row.txList = [];
+                        row.squareSizes = [];
+                        row.transactions = patternData;                    }
+                    delete row.pattern_data; // Remove raw JSON string
+                } catch (parseErr) {
+                    row.pattern = null;
+                    row.txList = [];
+                    row.squareSizes = [];
+                    row.transactions = null;
+                }
+            }
+            return row;
+        });
+        
+        return res.json(enhancedRows);
+    });
+});
+
+// Endpoint to get bitmap by sat number
+router.get('/bitmaps/sat/:sat_number', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const satNumber = req.params.sat_number;
+
+    db.get("SELECT * FROM bitmaps WHERE sat = ?", [satNumber], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Bitmap not found for this sat number" });
+        }
+        return res.json(row);
+    });
+});
 
 module.exports = router;

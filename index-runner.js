@@ -25,6 +25,7 @@ const processingLogger = winston.createLogger({
         winston.format.json()
     ),
     transports: [
+        new winston.transports.Console(),
         new winston.transports.File({ filename: 'processing.log' })
     ]
 });
@@ -377,6 +378,76 @@ function isValidBitmapFormat(content) {
     return bitmapRegex.test(content.trim());
 }
 
+// Function to extract sat number from inscription metadata
+async function getSatNumber(inscriptionId) {
+    try {
+        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
+            headers: { 'Accept': 'application/json' },
+            timeout: 10000
+        });
+        
+        const metadata = response.data;
+        if (metadata && metadata.sat !== undefined) {
+            logger.info(`Sat number extracted for ${inscriptionId}: ${metadata.sat}`);
+            return metadata.sat;
+        } else {
+            logger.warn(`No sat number found in metadata for ${inscriptionId}`);
+            return null;
+        }
+    } catch (error) {
+        logger.error(`Error extracting sat number for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+// Function to generate transaction pattern array for bitmap visualization
+async function generateBitmapPattern(bitmapNumber, blockHeight) {
+    try {
+        // This is a simplified pattern generation - in a real implementation,
+        // you would analyze actual transactions within the bitmap's block range
+        const response = await axios.get(`${config.API_WALLET_URL}/block/${blockHeight}`, {
+            headers: { 'Accept': 'application/json' },
+            timeout: 10000
+        });
+        
+        const blockData = response.data;
+        const transactions = blockData.tx || [];
+        
+        // Create a pattern array based on transaction data
+        const pattern = transactions.map((tx, index) => ({
+            txIndex: index,
+            txId: tx.txid || tx,
+            size: typeof tx === 'object' ? (tx.size || 250) : 250,
+            fee: typeof tx === 'object' ? (tx.fee || 1000) : 1000
+        }));
+        
+        // Store the pattern in the database
+        const patternData = JSON.stringify(pattern);
+        const stmt = db.prepare(`INSERT OR REPLACE INTO bitmap_patterns 
+            (bitmap_number, block_height, pattern_data, transaction_count, generated_at) 
+            VALUES (?, ?, ?, ?, ?)`);
+            
+        stmt.run([
+            bitmapNumber,
+            blockHeight,
+            patternData,
+            pattern.length,
+            Date.now()
+        ], function(err) {
+            if (err) {
+                logger.error(`Error saving bitmap pattern for ${bitmapNumber}:`, { message: err.message });
+            } else {
+                logger.info(`Bitmap pattern generated and saved for ${bitmapNumber} at block ${blockHeight}`);
+            }
+        });
+        
+        return pattern;
+    } catch (error) {
+        logger.error(`Error generating bitmap pattern for ${bitmapNumber}:`, { message: error.message });
+        return null;
+    }
+}
+
 // Function to process inscription
 async function processInscription(inscriptionId, blockHeight) {
     try {
@@ -561,8 +632,11 @@ async function startProcessing() {
         DEVICE_HOSTNAME: process.env.DEVICE_HOSTNAME,
         DEVICE_DOMAIN_NAME: process.env.DEVICE_DOMAIN_NAME,
         ORD_API_URL: process.env.ORD_API_URL
-    };
-    logger.info('🔍 Umbrel environment variables:', umbrelVars);
+    };    logger.info('🔍 Umbrel environment variables:', umbrelVars);
+
+    logger.info('🔄 Starting main processing loop...');
+    logger.info(`📊 Current block to process: ${currentBlock}`);
+    logger.info(`💾 Database connection status: ${db ? 'Connected' : 'Not connected'}`);
 
     while (true) {
         try {

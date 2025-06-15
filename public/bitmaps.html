@@ -125,14 +125,58 @@
             margin-top: 20px;
             font-size: 16px;
             color: white;
-        }
-
-        .shortened {
+        }        .shortened {
             display: inline-block;
             max-width: 100%;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .bitmap-visualization {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #2a2a2a;
+            border: 1px solid orange;
+            border-radius: 5px;
+        }
+
+        .bitmap-canvas {
+            border: 1px solid #ccc;
+            margin: 10px 0;
+            background-color: white;
+        }
+
+        .pattern-info {
+            color: white;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .visualization-controls {
+            margin: 10px 0;
+        }
+
+        .visualization-controls button {
+            margin: 5px;
+            padding: 8px 12px;
+            background-color: #2e82b9;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .visualization-controls button:hover {
+            background-color: #1e5f7e;
+        }
+
+        .close-visualization {
+            background-color: #cc4444 !important;
+        }
+
+        .close-visualization:hover {
+            background-color: #aa2222 !important;
         }
     </style>
 </head>
@@ -147,11 +191,33 @@
             <button onclick="performSearch()">Search</button>
         </div>
         <div id="bitmapContainer" class="bitmap-container"></div>
-        <div id="loading" class="loading">Loading...</div>
-        <div class="iframe-container" id="iframeContainer" style="display: none;">
-            <iframe id="bitmapIframe" src="" frameborder="0"></iframe>
+        <div id="loading" class="loading">Loading...</div>        <div class="iframe-container" id="iframeContainer" style="display: none;">
+            <iframe id="bitmapIframe" src="" frameborder="0"></iframe>        </div>
+        <div id="bitmapVisualization" class="bitmap-visualization" style="display: none;">
+            <h3>Bitmap Visualization</h3>
+            <div class="pattern-info" id="patternInfo"></div>
+            <div class="visualization-controls">
+                <button onclick="regenerateVisualization()">Regenerate</button>
+                <button onclick="downloadVisualization()">Download PNG</button>
+                <button class="close-visualization" onclick="closeVisualization()">Close</button>
+            </div>
+            <canvas id="bitmapCanvas" class="bitmap-canvas"></canvas>
         </div>
-    </div>    <script>
+    </div>
+
+    <!-- Import Mondrian visualization utilities -->
+    <script type="module">
+        import { MondrianLayout, getPatternArray, getMondrianFromBitmap, renderMondrianToCanvas, getSquareColor } from './js/mondrian.js';
+        
+        // Make functions globally available for onclick handlers
+        window.MondrianLayout = MondrianLayout;
+        window.getPatternArray = getPatternArray;
+        window.getMondrianFromBitmap = getMondrianFromBitmap;
+        window.renderMondrianToCanvas = renderMondrianToCanvas;
+        window.getSquareColor = getSquareColor;
+    </script>
+
+    <script>
         const API_URL = `${window.location.protocol}//${window.location.host}/api`;  // Base URL for API
         
         // Try to detect local Ordinals service, fallback to ordinals.com
@@ -222,9 +288,7 @@
         function shortenText(text, maxLength = 15) {
             if (text.length <= maxLength) return text;
             return `${text.substring(0, 6)}...${text.substring(text.length - 4)}`;
-        }
-
-        function loadBitmaps(query = '') {
+        }        function loadBitmaps(query = '') {
             if (isLoading) return;
             isLoading = true;
             lastQuery = query;
@@ -234,7 +298,8 @@
 
             loadingElement.style.display = 'block';
 
-            fetch(`${API_URL}/bitmaps?page=${currentPage}&limit=20&number=${query}`)
+            // Use enhanced endpoint for better data
+            fetch(`${API_URL}/bitmaps/enhanced?page=${currentPage}&limit=20&number=${query}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.length === 0) {
@@ -247,12 +312,18 @@
                         const bitmapElement = document.createElement('div');
                         bitmapElement.className = 'bitmap';
 
+                        // Enhanced bitmap display with sat number and pattern info
+                        const satInfo = bitmap.sat ? `<div><strong>Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : '';
+                        const patternInfo = bitmap.transaction_count ? `<div><strong>Transactions:</strong> ${bitmap.transaction_count}</div>` : '';
+
                         bitmapElement.innerHTML = `
                             <div class="bitmap-header">${bitmap.bitmap_number}.bitmap</div>
                             <div class="bitmap-content">
                                 <div><strong>Inscription ID:</strong> <span class="shortened">${shortenText(bitmap.inscription_id)}</span></div>
                                 <div><strong>Address:</strong> <span class="shortened">${shortenText(bitmap.address)}</span></div>
                                 <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                                ${satInfo}
+                                ${patternInfo}
                                 <div><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>
                             </div>
                         `;
@@ -286,14 +357,146 @@
             currentPage = 1;
             document.getElementById('bitmapContainer').innerHTML = '';
             loadBitmaps(query);
+        }        function loadBitmapInIframe(inscriptionId) {
+            showBitmapVisualization(inscriptionId);
         }
 
-        function loadBitmapInIframe(inscriptionId) {
+        async function showBitmapVisualization(inscriptionId) {
+            try {
+                // First, get the bitmap data to extract bitmap number
+                const response = await fetch(`${API_URL}/bitmap/${inscriptionId}`);
+                const bitmap = await response.json();
+                
+                if (!bitmap) {
+                    console.error('Bitmap not found');
+                    return;
+                }
+
+                // Create visualization container
+                const container = document.querySelector('.container');
+                let visualizationDiv = document.getElementById('bitmapVisualization');
+                
+                if (visualizationDiv) {
+                    visualizationDiv.remove();
+                }
+
+                visualizationDiv = document.createElement('div');
+                visualizationDiv.id = 'bitmapVisualization';
+                visualizationDiv.className = 'bitmap-visualization';
+
+                // Get pattern data
+                const patternResponse = await fetch(`${API_URL}/bitmap/${bitmap.bitmap_number}/pattern`);
+                let patternData = null;
+                
+                if (patternResponse.ok) {
+                    patternData = await patternResponse.json();
+                }
+
+                visualizationDiv.innerHTML = `
+                    <h3>Bitmap ${bitmap.bitmap_number}.bitmap Visualization</h3>
+                    <div class="pattern-info">
+                        <div><strong>Inscription ID:</strong> ${bitmap.inscription_id}</div>
+                        <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                        ${bitmap.sat ? `<div><strong>Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : ''}
+                        ${patternData ? `<div><strong>Transaction Pattern:</strong> ${patternData.pattern}</div>` : ''}
+                        ${patternData ? `<div><strong>Transaction Count:</strong> ${patternData.transaction_count}</div>` : ''}
+                    </div>
+                    <div class="visualization-controls">
+                        <button onclick="showOriginalContent('${inscriptionId}')">Show Original Content</button>
+                        ${patternData ? `<button onclick="renderMondrian('${bitmap.bitmap_number}', ${JSON.stringify(patternData).replace(/"/g, '&quot;')})">Show Mondrian Pattern</button>` : ''}
+                        <button class="close-visualization" onclick="closeVisualization()">Close</button>
+                    </div>
+                    <div id="canvasContainer"></div>
+                    <div id="originalContent" style="display: none;">
+                        <iframe src="${CONTENT_URL}/content/${inscriptionId}" style="width: 100%; height: 400px; border: 1px solid #ccc;"></iframe>
+                    </div>
+                `;
+
+                container.appendChild(visualizationDiv);
+                visualizationDiv.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (error) {
+                console.error('Error loading bitmap visualization:', error);
+                // Fallback to simple iframe
+                showSimpleIframe(inscriptionId);
+            }
+        }
+
+        function showOriginalContent(inscriptionId) {
+            const originalContent = document.getElementById('originalContent');
+            if (originalContent) {
+                originalContent.style.display = originalContent.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function renderMondrian(bitmapNumber, patternData) {
+            try {
+                const canvasContainer = document.getElementById('canvasContainer');
+                if (!canvasContainer) return;
+
+                // Clear previous canvas
+                canvasContainer.innerHTML = '';
+
+                // Create canvas
+                const canvas = document.createElement('canvas');
+                canvas.className = 'bitmap-canvas';
+                canvasContainer.appendChild(canvas);                // Extract pattern array from the data - use txList as primary
+                let txList = [];
+                if (patternData.txList && Array.isArray(patternData.txList)) {
+                    txList = patternData.txList;
+                } else if (patternData.pattern && typeof patternData.pattern === 'string') {
+                    txList = window.getPatternArray(patternData.pattern);
+                } else if (patternData.squareSizes && Array.isArray(patternData.squareSizes)) {
+                    txList = patternData.squareSizes; // Backward compatibility
+                }                if (txList.length === 0) {
+                    canvasContainer.innerHTML = '<p style="color: white;">No pattern data available for visualization.</p>';
+                    return;
+                }
+
+                // Create Mondrian layout
+                const mondrian = new window.MondrianLayout(txList);
+
+                // Render to canvas
+                window.renderMondrianToCanvas(mondrian, canvas, {
+                    cellSize: 15,
+                    strokeWidth: 1,
+                    backgroundColor: '#ffffff',
+                    strokeColor: '#000000',
+                    showEmptySpaces: true
+                });
+
+                // Add pattern info
+                const info = document.createElement('div');
+                info.className = 'pattern-info';                info.innerHTML = `
+                    <p><strong>Pattern Visualization for Bitmap ${bitmapNumber}</strong></p>
+                    <p>Transaction List: [${txList.join(', ')}]</p>
+                    <p>Canvas Size: ${mondrian.getSize().width} x ${mondrian.getSize().height}</p>
+                    <p>Each square represents a transaction in block ${patternData.block_height || 'N/A'}</p>
+                `;
+                canvasContainer.appendChild(info);
+
+            } catch (error) {
+                console.error('Error rendering Mondrian pattern:', error);
+                const canvasContainer = document.getElementById('canvasContainer');
+                if (canvasContainer) {
+                    canvasContainer.innerHTML = '<p style="color: red;">Error rendering pattern visualization.</p>';
+                }
+            }
+        }
+
+        function closeVisualization() {
+            const visualizationDiv = document.getElementById('bitmapVisualization');
+            if (visualizationDiv) {
+                visualizationDiv.remove();
+            }
+        }
+
+        function showSimpleIframe(inscriptionId) {
             const iframeContainer = document.getElementById('iframeContainer');
             const bitmapIframe = document.getElementById('bitmapIframe');
 
             // Set the iframe source to display the bitmap content
-            bitmapIframe.src = `https://ordinals.com/content/${inscriptionId}`;
+            bitmapIframe.src = `${CONTENT_URL}/content/${inscriptionId}`;
 
             // Display the iframe container
             iframeContainer.style.display = 'block';

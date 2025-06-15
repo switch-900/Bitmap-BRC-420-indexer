@@ -85,12 +85,11 @@ function initializeDatabase() {
 function setupDatabaseSchema(db, callback) {
     db.serialize(() => {
         let tablesCreated = 0;
-        const totalTables = 6; // deploys, mints, bitmaps, wallets, blocks, error_blocks
+        const totalTables = 7; // deploys, mints, bitmaps, bitmap_patterns, wallets, blocks, error_blocks
         
         function checkCompletion() {
             tablesCreated++;
-            if (tablesCreated >= totalTables) {
-                console.log('All database tables created successfully');
+            if (tablesCreated >= totalTables) {                console.log('All database tables created successfully');
                 
                 // Create indexes after all tables are created
                 const indexes = [
@@ -99,7 +98,11 @@ function setupDatabaseSchema(db, callback) {
                     'CREATE INDEX IF NOT EXISTS idx_mints_deploy_id ON mints(deploy_id)',
                     'CREATE INDEX IF NOT EXISTS idx_mints_block_height ON mints(block_height)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_bitmap_number ON bitmaps(bitmap_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_block_height ON bitmaps(block_height)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_address ON bitmaps(address)',
+                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_sat ON bitmaps(sat)',
+                    'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_block_height ON bitmap_patterns(block_height)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
                     'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',
@@ -168,18 +171,19 @@ function setupDatabaseSchema(db, callback) {
             if (err) {
                 console.error('Error creating mints table:', err.message);
             } else {
-                console.log('Mints table created or already exists');
-            }
+                console.log('Mints table created or already exists');            }
             checkCompletion();
         });
 
-        // Create bitmaps table
+        // Create bitmaps table with enhanced schema for Mondrian visualization
         db.run(`CREATE TABLE IF NOT EXISTS bitmaps (
             inscription_id TEXT PRIMARY KEY,
             bitmap_number INTEGER NOT NULL,
             content TEXT NOT NULL,
             address TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
+            block_height INTEGER NOT NULL,
+            sat INTEGER,
             wallet TEXT,
             UNIQUE(inscription_id),
             UNIQUE(bitmap_number)
@@ -188,6 +192,25 @@ function setupDatabaseSchema(db, callback) {
                 console.error('Error creating bitmaps table:', err.message);
             } else {
                 console.log('Bitmaps table created or already exists');
+            }
+            checkCompletion();
+        });
+
+        // Create bitmap_patterns table for storing transaction pattern arrays
+        db.run(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bitmap_number INTEGER NOT NULL,
+            block_height INTEGER NOT NULL,
+            pattern_data TEXT NOT NULL,
+            transaction_count INTEGER NOT NULL,
+            generated_at INTEGER NOT NULL,
+            FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number),
+            UNIQUE(bitmap_number, block_height)
+        )`, (err) => {
+            if (err) {
+                console.error('Error creating bitmap_patterns table:', err.message);
+            } else {
+                console.log('Bitmap patterns table created or already exists');
             }
             checkCompletion();
         });
