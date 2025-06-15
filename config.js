@@ -27,10 +27,19 @@ module.exports = {
     isUmbrelEnvironment() {
         return !!(this.BITCOIN_RPC_HOST && this.BITCOIN_RPC_USER && this.BITCOIN_RPC_PASS);
     },
-    
-    // Get the appropriate API URL based on environment
+      // Get the appropriate API URL based on environment
     getApiUrl() {
-        return this.ORD_API_URL || this.API_URL;
+        let url = this.ORD_API_URL || this.API_URL;
+        
+        // Ensure URL is properly formatted
+        if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+            // If it's just a hostname, add http://
+            if (url.includes(':')) {
+                url = `http://${url}`;
+            }
+        }
+        
+        return url;
     },
       // Get local Ordinals URL for frontend content
     getLocalOrdinalsUrl() {
