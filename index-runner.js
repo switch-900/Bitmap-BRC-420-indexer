@@ -462,7 +462,8 @@ async function processInscription(inscriptionId, blockHeight) {
 
 // Function to process a block
 async function processBlock(blockHeight) {
-    processingLogger.info(`Processing block: ${blockHeight}`);    try {
+    processingLogger.info(`Processing block: ${blockHeight}`);
+    try {
         const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
             headers: { 'Accept': 'application/json' },
             timeout: 10000
@@ -491,12 +492,11 @@ async function processBlock(blockHeight) {
                 } catch (error) {
                     logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
                 }
-            }
-
-            processingLogger.info(`Block ${blockHeight} processed. Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}`);
+            }            processingLogger.info(`Block ${blockHeight} processed. Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}`);
         } else {
             processingLogger.info(`No inscriptions found in block ${blockHeight}`);
-        }    } catch (error) {
+        }
+    } catch (error) {
         logger.error(`Error processing block ${blockHeight}:`, { message: error.message });
         
         // If we're using local API and get network error, try switching to external
@@ -514,28 +514,38 @@ async function processBlock(blockHeight) {
 async function retryFailedBlocks(currentBlockHeight) {
     const retryBlockHeight = currentBlockHeight - RETRY_BLOCK_DELAY;
 
-    return new Promise((resolve) => {
-        db.all("SELECT block_height FROM error_blocks WHERE retry_at <= ?", [retryBlockHeight], async (err, rows) => {
-            if (err) {
-                logger.error('Error fetching error blocks:', { message: err.message });
-                resolve();
-                return;
-            }
+    try {
+        const rows = await new Promise((resolve, reject) => {
+            db.all("SELECT block_height FROM error_blocks WHERE retry_at <= ?", [retryBlockHeight], (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            });
+        });
 
-            if (rows && rows.length > 0) {
-                for (const row of rows) {
-                    try {
-                        await processBlock(row.block_height);
-                        db.run("DELETE FROM error_blocks WHERE block_height = ?", [row.block_height]);
-                        logger.info(`Error block ${row.block_height} successfully retried and deleted.`);
-                    } catch (error) {
-                        logger.error(`Failed to process error block ${row.block_height}.`, { message: error.message });
-                    }
+        if (rows && rows.length > 0) {
+            logger.info(`Retrying ${rows.length} failed blocks before processing block ${currentBlockHeight}`);
+            for (const row of rows) {
+                try {
+                    logger.info(`Retrying failed block ${row.block_height}`);
+                    await processBlock(row.block_height);
+                    
+                    // Delete the error block on successful retry
+                    await new Promise((resolve, reject) => {
+                        db.run("DELETE FROM error_blocks WHERE block_height = ?", [row.block_height], (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        });
+                    });
+                    
+                    logger.info(`Error block ${row.block_height} successfully retried and deleted.`);
+                } catch (error) {
+                    logger.error(`Failed to process error block ${row.block_height}.`, { message: error.message });
                 }
             }
-            resolve();
-        });
-    });
+        }
+    } catch (error) {
+        logger.error('Error fetching error blocks:', { message: error.message });
+    }
 }
 
 // Main indexer processing loop
