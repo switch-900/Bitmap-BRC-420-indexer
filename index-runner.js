@@ -30,12 +30,41 @@ const processingLogger = winston.createLogger({
 });
 
 // Configuration constants
-const API_URL = config.getApiUrl();
+let API_URL = config.getApiUrl(); // Default to external API
+const LOCAL_API_URL = config.getLocalApiUrl();
 const START_BLOCK = config.START_BLOCK;
 const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 
 let currentBlock = START_BLOCK;
 let db;
+let useLocalAPI = false;
+
+// Test if local Ordinals API is available
+async function testLocalAPIConnectivity() {
+    if (!LOCAL_API_URL) {
+        logger.info('No local API URL configured, using external API');
+        return false;
+    }
+    
+    try {
+        logger.info(`Testing local API connectivity: ${LOCAL_API_URL}`);
+        const response = await axios.get(`${LOCAL_API_URL}/block/1`, {
+            timeout: 5000,
+            headers: { 'Accept': 'application/json' }
+        });
+        
+        if (response.status === 200) {
+            logger.info('Local Ordinals API is available, switching to local');
+            API_URL = LOCAL_API_URL;
+            useLocalAPI = true;
+            return true;
+        }
+    } catch (error) {
+        logger.info(`Local API not available (${error.message}), using external API: ${API_URL}`);
+    }
+    
+    return false;
+}
 
 // Initialize database connection for indexer
 function initializeIndexerDb() {
@@ -400,7 +429,8 @@ async function processBlock(blockHeight) {
 
     try {
         const response = await axios.get(`${API_URL}/block/${blockHeight}`, {
-            headers: { 'Accept': 'application/json' }
+            headers: { 'Accept': 'application/json' },
+            timeout: 10000
         });
 
         const { inscriptions } = response.data;
@@ -431,9 +461,16 @@ async function processBlock(blockHeight) {
             processingLogger.info(`Block ${blockHeight} processed. Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}`);
         } else {
             processingLogger.info(`No inscriptions found in block ${blockHeight}`);
-        }
-    } catch (error) {
+        }    } catch (error) {
         logger.error(`Error processing block ${blockHeight}:`, { message: error.message });
+        
+        // If we're using local API and get network error, try switching to external
+        if (useLocalAPI && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT')) {
+            logger.info('Local API failed, switching to external API for future requests');
+            API_URL = config.getApiUrl(); // Switch back to external API
+            useLocalAPI = false;
+        }
+        
         logErrorBlock(blockHeight);
     }
 }
@@ -510,6 +547,10 @@ async function startProcessing() {
 module.exports = {
     async startIndexer() {
         await initializeIndexerDb();
+        
+        // Test local API connectivity before starting
+        await testLocalAPIConnectivity();
+        
         await startProcessing();
     }
 };

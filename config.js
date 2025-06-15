@@ -26,10 +26,16 @@ module.exports = {
     // Determine if we're running in Umbrel environment
     isUmbrelEnvironment() {
         return !!(this.BITCOIN_RPC_HOST && this.BITCOIN_RPC_USER && this.BITCOIN_RPC_PASS);
-    },
-      // Get the appropriate API URL based on environment
+    },    // Get the appropriate API URL based on environment
     getApiUrl() {
-        let url = this.ORD_API_URL || this.API_URL;
+        // Always prioritize the fallback API_URL for reliability
+        // ORD_API_URL is for local services which may not be available
+        return this.API_URL;
+    },
+    
+    // Get local API URL for testing connectivity
+    getLocalApiUrl() {
+        let url = this.ORD_API_URL;
         
         // Ensure URL is properly formatted
         if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
