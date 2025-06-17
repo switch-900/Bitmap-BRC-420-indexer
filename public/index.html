@@ -4,134 +4,394 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deploys and Mints</title>
+    
+    <!-- High-Scale Optimization Scripts -->
+    <script src="js/svg-mondrian.js"></script>
+    <script src="js/progressive-loading.js"></script>
+    
     <style>
-        body {
-            font-family: Arial, sans-serif;
+        * {
             margin: 0;
             padding: 0;
-            background-color: black;
+            box-sizing: border-box;
+        }        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
         }
 
-        .container {
-            padding: 20px;
-            max-width: 80%;
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255, 107, 53, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(247, 147, 30, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }        .container {
+            max-width: 1400px;
             margin: 0 auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+            animation: fadeIn 0.6s ease-out;
+        }        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffd700 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+            font-weight: 700;
+            text-shadow: 0 4px 20px rgba(255, 107, 53, 0.3);
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px rgba(255, 107, 53, 0.5)); }
+            to { filter: drop-shadow(0 0 40px rgba(255, 107, 53, 0.8)); }
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            color: #b0b0b0;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 25px;
+            padding: 15px 30px;
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            display: inline-block;
+        }
+
+        .navigation {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .navigation a {
+            color: #ff6b35;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .navigation a::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 107, 53, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .navigation a:hover {
+            background: rgba(255, 107, 53, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
+        }
+
+        .navigation a:hover::before {
+            left: 100%;
+        }
+
+        .search-bar {
+            margin-bottom: 40px;
+            display: flex;
+            gap: 15px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .search-bar input {
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            border: 2px solid rgba(255, 107, 53, 0.3);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
             color: white;
+            transition: all 0.3s ease;
+        }
+
+        .search-bar input:focus {
+            outline: none;
+            border-color: #ff6b35;
+            box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
+            transform: scale(1.02);
+        }
+
+        .search-bar input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .search-bar button {
+            padding: 16px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .search-bar button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .search-bar button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 107, 53, 0.4);
+        }
+
+        .search-bar button:hover::before {
+            left: 100%;
         }
 
         .deploy-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
         }
 
         .deploy {
-            width: calc(25% - 20px);
-            height: 300px;
-            border: 1px solid #2e82b9;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 16px;
             overflow: hidden;
             cursor: pointer;
+            transition: all 0.4s ease;
             position: relative;
-            background-color: #1a1a1a;
+            height: 350px;
+            display: flex;
+            flex-direction: column;
         }
 
-        .deploy iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            overflow: hidden;
-            scroll-behavior: smooth;
-        }
-
-        .deploy .overlay {
+        .deploy::before {
+            content: '';
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.2);
-            cursor: pointer;
+            background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(247, 147, 30, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1;
         }
 
-        .deploy .mint-counter {
-            position: absolute;
-            bottom: 5px;
-            right: 5px;
-            background-color: rgba(0, 0, 0, 0.7);
+        .deploy:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(255, 107, 53, 0.3);
+            border-color: #ff6b35;
+        }
+
+        .deploy:hover::before {
+            opacity: 1;
+        }
+
+        .deploy-header {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
-            padding: 5px 10px;
-            border-radius: 3px;
-            font-size: 14px;
+            padding: 16px 20px;
+            font-weight: 700;
+            font-size: 18px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
         }
 
-        .search-bar {
-            margin-bottom: 20px;
+        .deploy-content {
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+            z-index: 2;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .deploy-content > div {
             display: flex;
             justify-content: space-between;
-            gap: 10px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .search-bar input {
-            flex-grow: 1;
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #2e82b9;
-            border-radius: 4px;
-            background-color: #1a1a1a;
-            color: white;
+        .deploy-content > div:last-child {
+            border-bottom: none;
         }
 
-        .search-bar button {
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #2e82b9;
-            border-radius: 4px;
-            cursor: pointer;
-            background-color: #2e82b9;
-            color: white;
+        .deploy-content strong {
+            color: #ff6b35;
+            font-weight: 600;
+            min-width: fit-content;
+            margin-right: 15px;
         }
 
-        .sort-toggle {
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: flex-end;
+        .deploy iframe {
+            width: 100%;
+            height: 60%;
+            border: none;
+            border-radius: 8px;
+            margin-bottom: 10px;
         }
 
-        .sort-toggle button {
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #2e82b9;
-            border-radius: 4px;
-            cursor: pointer;
-            background-color: #2e82b9;
-            color: white;
+        .mint-counter {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #ff6b35;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 3;
+            border: 1px solid rgba(255, 107, 53, 0.3);
         }
 
         .loading {
             text-align: center;
-            margin-top: 20px;
-            font-size: 16px;
-            color: white;
-        }
-   .navigation {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-        .navigation a {
-            color: #2e82b9;
-            text-decoration: none;
+            margin: 40px 0;
             font-size: 18px;
+            color: #ff6b35;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ff6b35;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .navigation {
+                flex-direction: column;
+                gap: 10px;
+                text-align: center;
+            }
+
+            .deploy-container {
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 20px;
+            }
+
+            .search-bar {
+                flex-direction: column;
+                max-width: none;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .deploy-container {
+                grid-template-columns: 1fr;
+            }
+
+            .deploy {
+                height: 300px;
+            }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #f7931e 0%, #ff6b35 100%);
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="navigation">
+<body>    <div class="container">
+        <div class="header">
+            <h1>BRC-420 Indexer</h1>
+            <div class="subtitle">Deploys and Mints Dashboard</div>
+        </div>        <div class="navigation">
             <a href="index.html">Deploys and Mints</a>
             <a href="bitmaps.html">Bitmaps</a>
+            <a href="admin.html">Admin</a>
         </div>
         <div class="search-bar">
             <input type="text" id="searchInput" placeholder="Search deploys or mints...">
@@ -204,7 +464,37 @@
         let currentPage = 1;
         let sortOrder = 'desc';  // 'desc' for latest first, 'asc' for oldest first
         let isLoading = false;
-        let lastQuery = '';        document.addEventListener('DOMContentLoaded', async function () {
+        let lastQuery = '';        document.addEventListener('DOMContentLoaded', async function () {            // Initialize high-scale optimization systems
+            if (window.ProgressiveLoadingManager) {
+                window.progressiveLoader = new ProgressiveLoadingManager({
+                    bufferSize: 3,
+                    lqipSize: 48,
+                    adaptiveBandwidth: true,
+                    loadingThreshold: 0.2
+                });
+
+                // Add custom handler for iframe progressive loading
+                const originalObserve = window.progressiveLoader.intersectionObserver.observe;
+                window.progressiveLoader.intersectionObserver.observe = function(target) {
+                    if (target.classList.contains('progressive-iframe')) {
+                        // Custom iframe handling
+                        originalObserve.call(this, target);
+                        return;
+                    }
+                    originalObserve.call(this, target);
+                };
+
+                // Override the loadHighQualityImage method for iframe support
+                window.progressiveLoader.loadHighQualityIframe = function(iframe) {
+                    if (iframe.dataset.src && !iframe.src) {
+                        iframe.src = iframe.dataset.src;
+                        this.loadedImages.add(iframe.dataset.src);
+                    }
+                };
+
+                console.log('Progressive loading manager initialized for deploys');
+            }
+
             // Try to detect local Ordinals service first
             await detectLocalOrdinals();
             loadDeploys();
@@ -219,47 +509,122 @@
             const deployContainer = document.getElementById('deployContainer');
             const loadingElement = document.getElementById('loading');
 
-            loadingElement.style.display = 'block';
-
-            fetch(`${API_URL}/deploys/with-mints?page=${currentPage}&limit=20&order=${sortOrder}&name=${query}`)
-                .then(response => response.json())
+            loadingElement.style.display = 'block';            fetch(`${API_URL}/deploys/with-mints?page=${currentPage}&limit=20&order=${sortOrder}&name=${query}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.length === 0) {
-                        loadingElement.textContent = 'No more deploys to load.';
+                        if (currentPage === 1) {
+                            loadingElement.innerHTML = `
+                                <div style="text-align: center; padding: 40px; color: #666;">
+                                    <h3>📭 No Deploys Found</h3>
+                                    <p>No BRC-420 deploy inscriptions match your search criteria.</p>
+                                    <p style="font-size: 14px; margin-top: 20px;">
+                                        ${query ? 'Try adjusting your search terms or ' : ''}Check if the indexer has processed any deploy inscriptions yet.
+                                    </p>
+                                    <button onclick="location.reload()" style="
+                                        margin-top: 15px;
+                                        padding: 8px 16px;
+                                        background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                                        color: white;
+                                        border: none;
+                                        border-radius: 6px;
+                                        cursor: pointer;
+                                    ">🔄 Refresh</button>
+                                </div>
+                            `;
+                        } else {
+                            loadingElement.textContent = 'No more deploys to load.';
+                        }
                         isLoading = false;
                         return;
-                    }
-
-                    data.forEach(deploy => {
+                    }data.forEach(deploy => {
                         const deployElement = document.createElement('div');
                         deployElement.className = 'deploy';
                         deployElement.style.position = 'relative';
 
-                        // Create a loading placeholder or background
-                        deployElement.style.background = 'url("/path/to/loading-placeholder.jpg") center center / cover no-repeat';
+                        // Create LQIP placeholder with deploy info
+                        const placeholder = document.createElement('div');
+                        placeholder.style.cssText = `
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                            align-items: center;
+                            color: white;
+                            font-weight: bold;
+                            text-align: center;
+                            z-index: 1;
+                        `;
+                        placeholder.innerHTML = `
+                            <div style="font-size: 14px; margin-bottom: 8px;">📄 ${deploy.name}</div>
+                            <div style="font-size: 12px; opacity: 0.9;">Loading preview...</div>
+                        `;
 
-                        // Create the iframe with lazy loading
+                        // Create the iframe with progressive loading
                         const iframe = document.createElement('iframe');
                         iframe.setAttribute('loading', 'lazy');
-                        iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                        iframe.className = 'progressive-iframe';
+                        iframe.dataset.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
                         iframe.frameBorder = '0';
-                        iframe.scrolling = 'no';  // Ensure no scrollbars
-                        iframe.style.overflow = 'hidden';
+                        iframe.scrolling = 'no';
+                        iframe.style.cssText = `
+                            width: 100%;
+                            height: 100%;
+                            opacity: 0;
+                            transition: opacity 0.3s ease;
+                        `;
+
+                        // Load iframe when visible
+                        if (window.progressiveLoader && window.progressiveLoader.intersectionObserver) {
+                            iframe.dataset.progressiveLoad = 'true';
+                            window.progressiveLoader.intersectionObserver.observe(iframe);
+                        } else {
+                            // Fallback: immediate loading
+                            iframe.src = iframe.dataset.src;
+                        }
+
+                        // Handle iframe load
+                        iframe.onload = () => {
+                            iframe.style.opacity = '1';
+                            placeholder.style.opacity = '0';
+                            setTimeout(() => {
+                                if (placeholder.parentElement) {
+                                    placeholder.remove();
+                                }
+                            }, 300);
+                        };
 
                         // Create the overlay
                         const overlay = document.createElement('div');
                         overlay.className = 'overlay';
+                        overlay.style.zIndex = '2';
 
                         // Click event to load the deploy details
                         overlay.onclick = () => loadDeployDetails(deploy.id);
 
-                        // Create the mint counter
+                        // Create the mint counter with enhanced styling
                         const mintCounter = document.createElement('div');
                         mintCounter.className = 'mint-counter';
-                        mintCounter.textContent = `${deploy.total_mints} / ${deploy.max} mints`;
+                        mintCounter.style.zIndex = '3';
+                        const mintPercentage = Math.round((deploy.total_mints / deploy.max) * 100);
+                        mintCounter.innerHTML = `
+                            <span>${deploy.total_mints} / ${deploy.max}</span>
+                            <div style="font-size: 10px; opacity: 0.8;">${mintPercentage}% minted</div>
+                        `;
 
-                        // Append the iframe, mint counter, and overlay to the deploy element
+                        // Append elements in correct order
                         deployElement.appendChild(iframe);
+                        deployElement.appendChild(placeholder);
                         deployElement.appendChild(mintCounter);
                         deployElement.appendChild(overlay);
 
@@ -269,12 +634,28 @@
 
                     isLoading = false;
                     loadingElement.style.display = 'none';
-                    currentPage++;
-                })
+                    currentPage++;                })
                 .catch(error => {
                     console.error('Error loading deploys:', error);
+                    loadingElement.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #dc3545;">
+                            <h3>❌ Error Loading Deploys</h3>
+                            <p>Failed to load deploy inscriptions from the database.</p>
+                            <p style="font-size: 14px; margin-top: 10px;">
+                                Error: ${error.message}
+                            </p>
+                            <button onclick="loadDeploys('${query}')" style="
+                                margin-top: 15px;
+                                padding: 8px 16px;
+                                background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+                                color: white;
+                                border: none;
+                                border-radius: 6px;
+                                cursor: pointer;
+                            ">🔄 Retry</button>
+                        </div>
+                    `;
                     isLoading = false;
-                    loadingElement.style.display = 'none';
                 });
         }
 

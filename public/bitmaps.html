@@ -3,192 +3,692 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bitmaps</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
+    <title>Bitmaps</title>    <style>
+        * {
             margin: 0;
             padding: 0;
-            background-color: black;
+            box-sizing: border-box;
+        }        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
+        }        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 165, 0, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }.container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+            animation: fadeIn 0.6s ease-out;
         }
 
-        .container {
-            padding: 20px;
-            max-width: 80%;
-            margin: 0 auto;
-            color: white;
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .navigation {
             display: flex;
-            justify-content: space-between;
-            margin-bottom: 20px;
-        }
-
-        .navigation a {
-            color: #2e82b9;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }        .navigation a {
+            color: #00ffff;
             text-decoration: none;
             font-size: 18px;
+            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .navigation a::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .navigation a:hover {
+            background: rgba(0, 255, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.3);
+        }
+
+        .navigation a:hover::before {
+            left: 100%;
+        }
+
+        .search-bar {
+            margin-bottom: 40px;
+            display: flex;
+            gap: 15px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }        .search-bar input {
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 16px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .search-bar input:focus {
+            outline: none;
+            border-color: #00ffff;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            transform: scale(1.02);
+        }
+
+        .search-bar input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }        .search-bar button {
+            padding: 16px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+            color: #000;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .search-bar button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }        .search-bar button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 255, 255, 0.4);
+        }
+
+        .search-bar button:hover::before {
+            left: 100%;
         }
 
         .bitmap-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 20px;
-        }
-
-        .bitmap {
-            width: calc(25% - 20px);
-            padding-top: calc(25% - 20px); /* Ensures the height is equal to the width */
-            position: relative;
-            border: 1px solid orange;
-            background-color: #1a1a1a;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }        .bitmap {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 16px;
+            overflow: hidden;
             cursor: pointer;
-            text-align: center;
-            box-sizing: border-box;
-        }
-
-        .bitmap-header {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background-color: orange;
-            color: black;
-            padding: 5px 0;
-            font-weight: bold;
-            box-sizing: border-box;
-        }
-
-        .bitmap-content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            padding: 10px;
-            background-color: #333;
-            color: white;
-            width: 80%;
-            text-align: left;
-            box-sizing: border-box;
-            border-radius: 5px;
-            overflow-wrap: break-word;
-        }
-
-        .iframe-container {
+            transition: all 0.4s ease;
             position: relative;
-            width: 100%;
-            padding-top: 56.25%;
-            margin-top: 20px;
+            height: 450px;
+            display: flex;
+            flex-direction: column;
         }
 
-        .iframe-container iframe {
+        .bitmap::before {
+            content: '';
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            border: 1px solid #2e82b9;
-            overflow: hidden;
+            background: linear-gradient(135deg, rgba(0, 255, 255, 0.1) 0%, rgba(0, 229, 255, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1;
         }
 
-        .search-bar {
-            margin-bottom: 20px;
+        .bitmap:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(0, 255, 255, 0.3);
+            border-color: #00ffff;
+        }
+
+        .bitmap:hover::before {
+            opacity: 1;
+        }        .bitmap-header {
+            background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+            color: #000;
+            padding: 16px 20px;
+            font-weight: 700;
+            font-size: 18px;
+            position: relative;
+            z-index: 2;
+            box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
             display: flex;
             justify-content: space-between;
-            gap: 10px;
-        }
-
-        .search-bar input {
-            flex-grow: 1;
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #2e82b9;
-            border-radius: 4px;
-            background-color: #1a1a1a;
+            align-items: center;
+        }        .result-number {
+            background: rgba(0, 0, 0, 0.3);
             color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
-        .search-bar button {
-            padding: 10px;
-            font-size: 16px;
-            border: 1px solid #2e82b9;
-            border-radius: 4px;
+        .bitmap-preview {
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+            position: relative;
+            z-index: 2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 120px;
+        }
+
+        .mondrian-preview {
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            background: white;
+            max-width: 100px;
+            max-height: 100px;
+        }
+
+        .bitmap-content {
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+            z-index: 2;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* Modal Popup Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 20px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            transform: scale(0.8);
+            transition: transform 0.3s ease;
+            position: relative;
+        }
+
+        .modal-overlay.show .modal-content {
+            transform: scale(1);
+        }        .modal-header {
+            background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+            color: #000;
+            padding: 25px 30px;
+            border-radius: 18px 18px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
             cursor: pointer;
-            background-color: #2e82b9;
-            color: white;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .loading {
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        .modal-body {
+            padding: 30px;
+            color: #e0e0e0;
+        }
+
+        .modal-mondrian {
             text-align: center;
-            margin-top: 20px;
-            font-size: 16px;
-            color: white;
-        }        .shortened {
-            display: inline-block;
+            margin-bottom: 30px;
+        }        .modal-mondrian canvas {
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 12px;
+            background: white;
             max-width: 100%;
+            height: auto;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }        .detail-group {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+        }
+
+        .detail-group h4 {
+            color: #00ffff;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .detail-item:last-child {
+            border-bottom: none;
+        }        .detail-label {
+            color: #00ffff;
+            font-weight: 600;
+        }
+
+        .detail-value {
+            color: #e0e0e0;
+            word-break: break-all;
+        }
+
+        .bitmap-content > div {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .bitmap-content > div:last-child {
+            border-bottom: none;
+        }        .bitmap-content strong {
+            color: #00ffff;
+            font-weight: 600;
+            min-width: fit-content;
+            margin-right: 15px;
+        }
+
+        .shortened {
+            display: inline-block;
+            max-width: 150px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }        .loading {
+            text-align: center;
+            margin: 40px 0;
+            font-size: 18px;
+            color: #00ffff;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }        .iframe-container {
+            margin-top: 40px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .iframe-container iframe {
+            width: 100%;
+            height: 600px;
+            border: none;
         }
 
         .bitmap-visualization {
-            margin-top: 20px;
-            padding: 20px;
-            background-color: #2a2a2a;
-            border: 1px solid orange;
-            border-radius: 5px;
-        }
-
-        .bitmap-canvas {
-            border: 1px solid #ccc;
-            margin: 10px 0;
-            background-color: white;
+            margin-top: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 2px solid rgba(255, 107, 53, 0.3);
+            border-radius: 16px;
+            animation: slideUp 0.5s ease-out;
+        }        .bitmap-visualization h3 {
+            color: #00ffff;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
         }
 
         .pattern-info {
-            color: white;
-            margin: 10px 0;
-            font-family: monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            border-left: 4px solid #00ffff;
+        }
+
+        .pattern-info > div {
+            margin: 8px 0;
+            padding: 5px 0;
         }
 
         .visualization-controls {
-            margin: 10px 0;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 25px 0;
+            flex-wrap: wrap;
         }
 
         .visualization-controls button {
-            margin: 5px;
-            padding: 8px 12px;
-            background-color: #2e82b9;
-            color: white;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 600;
             border: none;
-            border-radius: 3px;
+            border-radius: 8px;
             cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }        .visualization-controls button:not(.close-visualization) {
+            background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+            color: #000;
         }
 
-        .visualization-controls button:hover {
-            background-color: #1e5f7e;
+        .visualization-controls button:not(.close-visualization):hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.4);
         }
 
         .close-visualization {
-            background-color: #cc4444 !important;
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
         }
 
         .close-visualization:hover {
-            background-color: #aa2222 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(220, 53, 69, 0.4);
+        }        .bitmap-canvas {
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 12px;
+            margin: 20px 0;
+            background: white;
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .navigation {
+                flex-direction: column;
+                gap: 10px;
+                text-align: center;
+            }
+
+            .bitmap-container {
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 20px;
+            }
+
+            .search-bar {
+                flex-direction: column;
+                max-width: none;
+            }
+
+            .visualization-controls {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .visualization-controls button {
+                width: 200px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .bitmap-container {
+                grid-template-columns: 1fr;
+            }
+
+            .bitmap {
+                height: 300px;
+            }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #00e5ff 0%, #00ffff 100%);
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="navigation">
+    <div class="container">        <div class="navigation">
             <a href="index.html">Deploys and Mints</a>
             <a href="bitmaps.html">Bitmaps</a>
+            <a href="admin.html">Admin</a>
+        </div><div class="search-bar">
+            <input type="text" id="searchInput" placeholder="Search bitmaps by number, inscription ID, address, or block height...">
+            <button onclick="performSearch()">🔍 Search</button>
+            <button onclick="clearSearch()" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">🗑️ Clear</button>
         </div>
-        <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="Search bitmaps...">
-            <button onclick="performSearch()">Search</button>
+        
+        <!-- Enhanced Filter Controls -->
+        <div class="filter-controls" style="
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+        ">            <select id="sortBy" style="
+                padding: 8px 15px;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.1);
+                color: #e0e0e0;
+                font-size: 14px;
+            ">
+                <option value="bitmap_number_desc">📈 Bitmap # (High to Low)</option>
+                <option value="bitmap_number_asc">📉 Bitmap # (Low to High)</option>
+                <option value="block_height_desc">⛏️ Block Height (Recent)</option>
+                <option value="block_height_asc">⛏️ Block Height (Oldest)</option>
+                <option value="timestamp_desc">📅 Date (Recent)</option>
+                <option value="timestamp_asc">📅 Date (Oldest)</option>
+            </select>
+              <input type="number" id="minBitmap" placeholder="Min Bitmap #" style="
+                padding: 8px 15px;
+                width: 120px;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.1);
+                color: #e0e0e0;
+                font-size: 14px;
+            ">
+            
+            <input type="number" id="maxBitmap" placeholder="Max Bitmap #" style="
+                padding: 8px 15px;
+                width: 120px;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.1);
+                color: #e0e0e0;
+                font-size: 14px;
+            ">
+            
+            <input type="number" id="minBlockHeight" placeholder="Min Block" style="
+                padding: 8px 15px;
+                width: 120px;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.1);
+                color: #e0e0e0;
+                font-size: 14px;
+            ">
+              <button onclick="applyFilters()" style="
+                padding: 8px 20px;
+                font-size: 14px;
+                font-weight: 600;
+                border: none;
+                border-radius: 8px;
+                background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+                color: #000;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            ">🎯 Apply Filters</button>
+            
+            <button onclick="resetFilters()" style="
+                padding: 8px 20px;
+                font-size: 14px;
+                font-weight: 600;
+                border: none;
+                border-radius: 8px;
+                background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+                color: white;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            ">🔄 Reset</button>
+        </div>
+        
+        <!-- Enhanced Stats bar with detailed information -->        <div id="statsBar" style="
+            margin-bottom: 30px;
+            padding: 20px 25px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            text-align: center;
+            color: #00ffff;
+            font-weight: 600;
+            display: none;
+            box-shadow: 0 4px 15px rgba(0, 255, 255, 0.2);
+        ">
+            <div id="statsText" style="font-size: 16px; margin-bottom: 10px;">📊 Loading statistics...</div>
+            <div id="detailedStats" style="
+                font-size: 14px; 
+                color: #b0b0b0; 
+                display: flex; 
+                justify-content: center; 
+                gap: 20px; 
+                flex-wrap: wrap;
+                margin-top: 10px;
+            "></div>
         </div>
         <div id="bitmapContainer" class="bitmap-container"></div>
         <div id="loading" class="loading">Loading...</div>        <div class="iframe-container" id="iframeContainer" style="display: none;">
@@ -203,11 +703,11 @@
             </div>
             <canvas id="bitmapCanvas" class="bitmap-canvas"></canvas>
         </div>
-    </div>
-
-    <!-- Import Mondrian visualization utilities -->
+    </div>    <!-- Import Mondrian visualization utilities -->
     <script type="module">
         import { MondrianLayout, getPatternArray, getMondrianFromBitmap, renderMondrianToCanvas, getSquareColor } from './js/mondrian.js';
+        import { ProgressiveLoadingManager } from './js/progressive-loading.js';
+        import { SVGMondrianGenerator } from './js/svg-mondrian.js';
         
         // Make functions globally available for onclick handlers
         window.MondrianLayout = MondrianLayout;
@@ -215,6 +715,46 @@
         window.getMondrianFromBitmap = getMondrianFromBitmap;
         window.renderMondrianToCanvas = renderMondrianToCanvas;
         window.getSquareColor = getSquareColor;
+        window.ProgressiveLoadingManager = ProgressiveLoadingManager;
+        window.SVGMondrianGenerator = SVGMondrianGenerator;
+          // Initialize progressive loading system
+        window.progressiveLoader = new ProgressiveLoadingManager({
+            bufferSize: 5,
+            lqipSize: 64,
+            adaptiveBandwidth: true,
+            loadingThreshold: 0.2
+        });
+        
+        // Custom high-quality loader for Mondrian canvases
+        window.progressiveLoader.loadHighQualityImage = function(target) {
+            if (target.classList.contains('progressive-canvas') && target.dataset.highQualityPending === 'true') {
+                try {
+                    const txList = JSON.parse(target.dataset.txList);
+                    const mondrian = new window.MondrianLayout(txList);
+                    
+                    if (mondrian && mondrian.slots.length > 0) {
+                        // Clear placeholder
+                        const ctx = target.getContext('2d');
+                        ctx.clearRect(0, 0, target.width, target.height);
+                        
+                        // Render high-quality Mondrian
+                        window.renderMondrianToCanvas(mondrian, target, {
+                            cellSize: Math.min(80 / Math.max(mondrian.width, mondrian.height), 6),
+                            strokeWidth: 1,
+                            backgroundColor: '#ffffff',
+                            strokeColor: '#000000',
+                            showEmptySpaces: false
+                        });
+                        
+                        target.dataset.highQualityPending = 'false';
+                        target.style.transition = 'opacity 0.3s ease';
+                        target.style.opacity = '1';
+                    }
+                } catch (error) {
+                    console.warn('Error loading high-quality Mondrian:', error);
+                }
+            }
+        };
     </script>
 
     <script>
@@ -279,15 +819,188 @@
         let currentPage = 1;
         let isLoading = false;
         let lastQuery = '';        document.addEventListener('DOMContentLoaded', async function () {
-            // Try to detect local Ordinals service first
-            await detectLocalOrdinals();
-            loadBitmaps();
-            window.addEventListener('scroll', handleScroll);
-        });
+            try {
+                // Show loading stats
+                const statsBar = document.getElementById('statsBar');
+                if (statsBar) {
+                    statsBar.style.display = 'block';
+                    statsBar.querySelector('#statsText').textContent = '🔄 Initializing...';
+                }
 
-        function shortenText(text, maxLength = 15) {
+                // Try to detect local Ordinals service first
+                await detectLocalOrdinals();
+                
+                // Load initial bitmaps
+                loadBitmaps();
+                  // Set up scroll handler
+                window.addEventListener('scroll', handleScroll);
+                
+                // Initialize scroll to top button
+                addScrollToTop();                // Add Enter key support for search
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') {
+                            performSearch();
+                        }
+                    });
+
+                    // Add search suggestions/auto-complete functionality
+                    searchInput.addEventListener('input', debounce(function() {
+                        const value = this.value.trim();
+                        if (value.length > 2) {
+                            // Optional: Add search suggestions here
+                        }
+                    }, 300));
+                }
+
+                // Enhanced keyboard shortcuts
+                document.addEventListener('keydown', function(e) {
+                    // ESC key to close visualizations
+                    if (e.key === 'Escape') {
+                        const visualization = document.getElementById('bitmapVisualization');
+                        const iframe = document.getElementById('iframeContainer');
+                        
+                        if (visualization && visualization.style.display !== 'none') {
+                            closeVisualization();
+                        } else if (iframe && iframe.style.display !== 'none') {
+                            iframe.style.display = 'none';
+                            showNotification('✅ Viewer closed', 'info');
+                        }
+                    }
+                    
+                    // Ctrl+F or Cmd+F to focus search
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                        e.preventDefault();
+                        searchInput?.focus();
+                        showNotification('🔍 Search focused', 'info');
+                    }
+                    
+                    // Ctrl+R or Cmd+R to reset filters
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+                        e.preventDefault();
+                        resetFilters();
+                    }
+                });
+
+                // Add filter change listeners
+                const filterInputs = ['sortBy', 'minBitmap', 'maxBitmap', 'minBlockHeight'];
+                filterInputs.forEach(id => {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.addEventListener('change', debounce(function() {
+                            if (document.querySelectorAll('.bitmap').length > 0) {
+                                // Only auto-apply if there are results
+                                applyFilters();
+                            }
+                        }, 500));
+                    }
+                });
+                
+                // Update stats
+                if (statsBar) {
+                    setTimeout(() => {
+                        statsBar.querySelector('#statsText').textContent = '✅ Ready to explore bitmaps!';
+                        setTimeout(() => {
+                            statsBar.style.display = 'none';
+                        }, 2000);
+                    }, 1000);
+                }
+
+                // Add keyboard shortcuts info
+                setTimeout(() => {
+                    showNotification('💡 Tip: Press ESC to close visualizations, Enter to search', 'info');
+                }, 1500);
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showNotification('❌ Initialization failed, some features may not work', 'error');
+            }
+        });        function shortenText(text, maxLength = 15) {
             if (text.length <= maxLength) return text;
             return `${text.substring(0, 6)}...${text.substring(text.length - 4)}`;
+        }
+
+        // Enhanced search and filtering variables
+        let currentFilters = {
+            query: '',
+            sortBy: 'bitmap_number_desc',
+            minBitmap: null,
+            maxBitmap: null,
+            minBlockHeight: null,
+            exactCount: 0,
+            totalResults: 0,
+            currentPage: 1
+        };
+
+        // Enhanced search functions
+        function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            
+            // Reset pagination and clear container
+            currentPage = 1;
+            currentFilters.query = query;
+            const bitmapContainer = document.getElementById('bitmapContainer');
+            bitmapContainer.innerHTML = '';
+            
+            // Add search feedback
+            if (query) {
+                showNotification(`🔍 Searching for "${query}"...`, 'info');
+            } else {
+                showNotification('📋 Loading all bitmaps...', 'info');
+            }
+            
+            loadBitmaps(query);
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            currentFilters.query = '';
+            resetFilters();
+        }
+
+        function applyFilters() {
+            // Get filter values
+            currentFilters.sortBy = document.getElementById('sortBy').value;
+            currentFilters.minBitmap = document.getElementById('minBitmap').value || null;
+            currentFilters.maxBitmap = document.getElementById('maxBitmap').value || null;
+            currentFilters.minBlockHeight = document.getElementById('minBlockHeight').value || null;
+            
+            // Reset and reload with filters
+            currentPage = 1;
+            const bitmapContainer = document.getElementById('bitmapContainer');
+            bitmapContainer.innerHTML = '';
+            
+            showNotification('🎯 Applying filters...', 'info');
+            loadBitmaps(currentFilters.query);
+        }
+
+        function resetFilters() {
+            // Clear all filter inputs
+            document.getElementById('sortBy').value = 'bitmap_number_desc';
+            document.getElementById('minBitmap').value = '';
+            document.getElementById('maxBitmap').value = '';
+            document.getElementById('minBlockHeight').value = '';
+            
+            // Reset filter state
+            currentFilters = {
+                query: currentFilters.query, // Keep search query
+                sortBy: 'bitmap_number_desc',
+                minBitmap: null,
+                maxBitmap: null,
+                minBlockHeight: null,
+                exactCount: 0,
+                totalResults: 0,
+                currentPage: 1
+            };
+            
+            // Reload data
+            currentPage = 1;
+            const bitmapContainer = document.getElementById('bitmapContainer');
+            bitmapContainer.innerHTML = '';
+            
+            showNotification('🔄 Filters reset', 'info');
+            loadBitmaps(currentFilters.query);
         }        function loadBitmaps(query = '') {
             if (isLoading) return;
             isLoading = true;
@@ -297,190 +1010,866 @@
             const loadingElement = document.getElementById('loading');
 
             loadingElement.style.display = 'block';
+            loadingElement.textContent = 'Loading bitmaps from database...';
 
-            // Use enhanced endpoint for better data
-            fetch(`${API_URL}/bitmaps/enhanced?page=${currentPage}&limit=20&number=${query}`)
-                .then(response => response.json())
-                .then(data => {
+            // Build enhanced query parameters
+            const params = new URLSearchParams({
+                page: currentPage,
+                limit: 20
+            });
+
+            // Add search parameters
+            if (query) params.append('search', query);
+            if (currentFilters.sortBy) params.append('sort', currentFilters.sortBy);
+            if (currentFilters.minBitmap) params.append('min_bitmap', currentFilters.minBitmap);
+            if (currentFilters.maxBitmap) params.append('max_bitmap', currentFilters.maxBitmap);
+            if (currentFilters.minBlockHeight) params.append('min_block', currentFilters.minBlockHeight);
+
+            // Use enhanced endpoint for real database data with patterns
+            fetch(`${API_URL}/bitmaps/search?${params}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(result => {
+                    const data = result.bitmaps || result;
+                    const totalCount = result.total || data.length;
+                    const hasMore = result.hasMore !== false;
+
+                    // Update statistics
+                    updateSearchStats(totalCount, data.length, query);
+
                     if (data.length === 0) {
-                        loadingElement.textContent = 'No more bitmaps to load.';
+                        if (currentPage === 1) {
+                            loadingElement.innerHTML = `
+                                <div style="text-align: center; padding: 40px; color: #666;">
+                                    <h3>📭 No Bitmaps Found</h3>
+                                    <p>No bitmap inscriptions match your search criteria.</p>
+                                    <p style="font-size: 14px; margin-top: 20px;">
+                                        Try adjusting your search terms or filters, or check if the indexer has processed any bitmap inscriptions yet.
+                                    </p>
+                                </div>
+                            `;
+                        } else {
+                            loadingElement.textContent = 'No more bitmaps to load.';
+                        }
                         isLoading = false;
                         return;
                     }
 
-                    data.forEach(bitmap => {
+                    data.forEach((bitmap, index) => {
                         const bitmapElement = document.createElement('div');
                         bitmapElement.className = 'bitmap';
+                        bitmapElement.style.animationDelay = `${index * 0.1}s`;
+                        bitmapElement.style.animation = 'fadeInUp 0.6s ease-out forwards';
 
-                        // Enhanced bitmap display with sat number and pattern info
-                        const satInfo = bitmap.sat ? `<div><strong>Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : '';
-                        const patternInfo = bitmap.transaction_count ? `<div><strong>Transactions:</strong> ${bitmap.transaction_count}</div>` : '';
+                        // Enhanced bitmap display with better information formatting
+                        const satInfo = bitmap.sat ? `
+                            <div>
+                                <strong>Sat Number:</strong> 
+                                <span title="${bitmap.sat}">${bitmap.sat.toLocaleString()}</span>
+                            </div>
+                        ` : '';
+                        
+                        const patternInfo = bitmap.transaction_count ? `
+                            <div>
+                                <strong>Transactions:</strong> 
+                                <span>${bitmap.transaction_count}</span>
+                            </div>
+                        ` : '';
 
-                        bitmapElement.innerHTML = `
-                            <div class="bitmap-header">${bitmap.bitmap_number}.bitmap</div>
+                        const blockInfo = bitmap.block_height ? `
+                            <div>
+                                <strong>Block Height:</strong> 
+                                <span title="Block ${bitmap.block_height}">${bitmap.block_height.toLocaleString()}</span>
+                            </div>
+                        ` : '';
+
+                        const timestampInfo = bitmap.timestamp ? `
+                            <div>
+                                <strong>Created:</strong> 
+                                <span title="${new Date(bitmap.timestamp).toLocaleString()}">${new Date(bitmap.timestamp).toLocaleDateString()}</span>
+                            </div>
+                        ` : '';
+
+                        // Add relevance indicator for search results
+                        const relevanceIndicator = query && bitmap.relevance ? `
+                            <div style="position: absolute; top: 10px; right: 10px; background: rgba(255, 107, 53, 0.8); color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                                ${Math.round(bitmap.relevance * 100)}% match
+                            </div>
+                        ` : '';                        // Generate Mondrian preview using real pattern data from database
+                        let mondrianPreview = '';
+                        try {
+                            // Use actual pattern data from the database if available
+                            if (bitmap.pattern && bitmap.txList && Array.isArray(bitmap.txList)) {
+                                // Create a small preview canvas for the pattern
+                                const previewCanvas = document.createElement('canvas');
+                                previewCanvas.className = 'mondrian-preview progressive-canvas';
+                                previewCanvas.width = 80;
+                                previewCanvas.height = 80;
+                                previewCanvas.dataset.bitmapId = bitmap.bitmap_number;
+                                previewCanvas.dataset.txList = JSON.stringify(bitmap.txList);
+                                
+                                // Generate simple placeholder first (LQIP approach)
+                                const ctx = previewCanvas.getContext('2d');
+                                const gradient = ctx.createLinearGradient(0, 0, 80, 80);
+                                gradient.addColorStop(0, '#ff6b35');
+                                gradient.addColorStop(1, '#f7931e');
+                                ctx.fillStyle = gradient;
+                                ctx.fillRect(0, 0, 80, 80);
+                                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                                ctx.font = '10px Arial';
+                                ctx.textAlign = 'center';
+                                ctx.fillText('🎨', 40, 45);
+                                
+                                // Schedule high-quality rendering when visible
+                                if (window.progressiveLoader && window.progressiveLoader.intersectionObserver) {
+                                    previewCanvas.dataset.highQualityPending = 'true';
+                                    window.progressiveLoader.intersectionObserver.observe(previewCanvas);
+                                } else {
+                                    // Fallback: immediate high-quality rendering
+                                    setTimeout(() => {
+                                        try {
+                                            const mondrian = new window.MondrianLayout(bitmap.txList);
+                                            
+                                            if (mondrian && mondrian.slots.length > 0) {
+                                                window.renderMondrianToCanvas(mondrian, previewCanvas, {
+                                                    cellSize: Math.min(80 / Math.max(mondrian.width, mondrian.height), 6),
+                                                    strokeWidth: 1,
+                                                    backgroundColor: '#ffffff',
+                                                    strokeColor: '#000000',
+                                                    showEmptySpaces: false
+                                                });
+                                            }
+                                        } catch (error) {
+                                            console.warn('Preview generation error:', error);
+                                        }
+                                    }, 100);
+                                }
+                                
+                                mondrianPreview = `
+                                    <div class="bitmap-preview">
+                                        <div class="progressive-container">
+                                            ${previewCanvas.outerHTML}
+                                        </div>
+                                    </div>
+                                `;
+                            } else if (bitmap.pattern) {
+                                mondrianPreview = `
+                                    <div class="bitmap-preview">
+                                        <div style="color: #666; font-size: 12px; text-align: center; padding: 10px;">Pattern Available</div>
+                                    </div>
+                                `;
+                            } else {
+                                mondrianPreview = `
+                                    <div class="bitmap-preview">
+                                        <div style="color: #999; font-size: 11px; text-align: center; padding: 10px;">No Pattern Data</div>
+                                    </div>
+                                `;
+                            }
+                        } catch (error) {
+                            console.warn('Error generating Mondrian preview for bitmap', bitmap.bitmap_number, ':', error);
+                            mondrianPreview = `
+                                <div class="bitmap-preview">
+                                    <div style="color: #cc6666; font-size: 11px; text-align: center; padding: 10px;">Preview Error</div>
+                                </div>
+                            `;
+                        }bitmapElement.innerHTML = `
+                            ${relevanceIndicator}
+                            <div class="bitmap-header">
+                                <span>Bitmap #${bitmap.bitmap_number}</span>
+                                <div class="result-number">#${currentPage === 1 ? index + 1 : ((currentPage - 1) * 20) + index + 1}</div>
+                            </div>
+                            ${mondrianPreview}
                             <div class="bitmap-content">
-                                <div><strong>Inscription ID:</strong> <span class="shortened">${shortenText(bitmap.inscription_id)}</span></div>
-                                <div><strong>Address:</strong> <span class="shortened">${shortenText(bitmap.address)}</span></div>
-                                <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
+                                <div>
+                                    <strong>Inscription ID:</strong> 
+                                    <span class="shortened" title="${bitmap.inscription_id}">${shortenText(bitmap.inscription_id, 12)}</span>
+                                </div>                                <div>
+                                    <strong>Original Address:</strong> 
+                                    <span class="shortened" title="${bitmap.address || 'N/A'}">${shortenText(bitmap.address || 'N/A', 12)}</span>
+                                </div>                                <div>
+                                    <strong style="color: #4ade80;">Current Wallet:</strong> 
+                                    <span class="shortened" title="${bitmap.wallet || bitmap.address || 'N/A'}" style="color: #4ade80;">${shortenText(bitmap.wallet || bitmap.address || 'N/A', 12)}</span>
+                                </div>
+                                <div style="margin-top: 8px;">
+                                    <button onclick="event.stopPropagation(); loadBitmapTransferHistory('${bitmap.inscription_id}', this)" style="
+                                        background: rgba(255, 107, 53, 0.2);
+                                        border: 1px solid rgba(255, 107, 53, 0.4);
+                                        color: #ff6b35;
+                                        padding: 4px 8px;
+                                        border-radius: 4px;
+                                        font-size: 11px;
+                                        cursor: pointer;
+                                    ">📈 Transfer History</button>
+                                    <div class="bitmap-transfer-history" style="display: none; margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 10px;"></div>
+                                </div>
+                                ${blockInfo}
                                 ${satInfo}
                                 ${patternInfo}
-                                <div><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>
+                                ${timestampInfo}
                             </div>
-                        `;
+                        `;                        // Updated click event to show modal instead of iframe
+                        bitmapElement.onclick = () => {
+                            showBitmapModal(bitmap);
+                        };
 
-                        // Click event to display the bitmap content in the iframe
-                        bitmapElement.onclick = () => loadBitmapInIframe(bitmap.inscription_id);
+                        // Add hover effect for better UX
+                        bitmapElement.addEventListener('mouseenter', () => {
+                            bitmapElement.style.transform = 'translateY(-8px) scale(1.02)';
+                        });
+
+                        bitmapElement.addEventListener('mouseleave', () => {
+                            if (!bitmapElement.style.opacity || bitmapElement.style.opacity === '1') {
+                                bitmapElement.style.transform = '';
+                            }
+                        });
 
                         bitmapContainer.appendChild(bitmapElement);
                     });
 
-                    isLoading = false;
-                    loadingElement.style.display = 'none';
                     currentPage++;
+                    loadingElement.style.display = hasMore ? 'block' : 'none';
+                    loadingElement.textContent = hasMore ? 'Scroll for more...' : '🎉 All results loaded!';
+                    isLoading = false;
+
+                    // Update current results count
+                    currentFilters.currentPage = currentPage;
+                    currentFilters.totalResults = totalCount;
                 })
                 .catch(error => {
                     console.error('Error loading bitmaps:', error);
+                    loadingElement.textContent = '❌ Error loading bitmaps. Please try again.';
+                    loadingElement.style.color = '#dc3545';
                     isLoading = false;
-                    loadingElement.style.display = 'none';
+                    showNotification('Error loading bitmaps', 'error');
                 });
         }
 
-        function handleScroll() {
-            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
-            if (scrollTop + clientHeight >= scrollHeight - 5 && !isLoading) {
-                loadBitmaps(lastQuery);
+        function updateSearchStats(totalCount, currentBatch, query) {
+            const statsBar = document.getElementById('statsBar');
+            const statsText = document.getElementById('statsText');
+            const detailedStats = document.getElementById('detailedStats');
+            
+            statsBar.style.display = 'block';
+            
+            if (query) {
+                statsText.textContent = `🔍 Found ${totalCount.toLocaleString()} bitmap${totalCount !== 1 ? 's' : ''} matching "${query}"`;
+            } else {
+                statsText.textContent = `📊 Showing ${totalCount.toLocaleString()} bitmap${totalCount !== 1 ? 's' : ''} total`;
             }
+            
+            // Detailed statistics
+            const currentlyLoaded = document.querySelectorAll('.bitmap').length;
+            const percentage = totalCount > 0 ? Math.round((currentlyLoaded / totalCount) * 100) : 0;
+            
+            detailedStats.innerHTML = `
+                <span>📦 Loaded: ${currentlyLoaded.toLocaleString()}</span>
+                <span>📈 Progress: ${percentage}%</span>
+                <span>📄 Page: ${currentPage - 1}</span>
+                <span>⏱️ Updated: ${new Date().toLocaleTimeString()}</span>
+            `;
         }
 
-        function performSearch() {
-            const query = document.getElementById('searchInput').value;
-            currentPage = 1;
-            document.getElementById('bitmapContainer').innerHTML = '';
-            loadBitmaps(query);
-        }        function loadBitmapInIframe(inscriptionId) {
+        // Enhanced notification system
+        function showNotification(message, type = 'info') {
+            // Remove existing notifications
+            const existingNotification = document.getElementById('notification');
+            if (existingNotification) {
+                existingNotification.remove();
+            }
+
+            const notification = document.createElement('div');
+            notification.id = 'notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 25px;
+                border-radius: 12px;
+                font-weight: 600;
+                z-index: 1000;
+                transform: translateX(400px);
+                transition: all 0.3s ease;
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+                max-width: 350px;
+                font-size: 14px;
+            `;
+
+            // Set notification style based on type
+            switch (type) {
+                case 'error':
+                    notification.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+                    notification.style.color = 'white';
+                    break;
+                case 'success':
+                    notification.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                    notification.style.color = 'white';
+                    break;
+                case 'info':
+                default:
+                    notification.style.background = 'linear-gradient(135deg, #ff6b35 0%, #f7931e 100%)';
+                    notification.style.color = 'white';
+                    break;
+            }
+
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // Show notification
+            setTimeout(() => {
+                notification.style.transform = 'translateX(0)';
+            }, 100);
+
+            // Hide notification after 3 seconds
+            setTimeout(() => {
+                notification.style.transform = 'translateX(400px)';
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // Main entry point for bitmap interaction
+        function loadBitmapInIframe(inscriptionId) {
             showBitmapVisualization(inscriptionId);
-        }
-
-        async function showBitmapVisualization(inscriptionId) {
+        }async function showBitmapVisualization(inscriptionId) {
             try {
+                // Show loading state
+                let loadingDiv = document.getElementById('loadingVisualization');
+                if (!loadingDiv) {
+                    loadingDiv = document.createElement('div');
+                    loadingDiv.id = 'loadingVisualization';
+                    loadingDiv.className = 'loading';
+                    loadingDiv.textContent = 'Loading bitmap visualization...';
+                    loadingDiv.style.position = 'fixed';
+                    loadingDiv.style.top = '50%';
+                    loadingDiv.style.left = '50%';
+                    loadingDiv.style.transform = 'translate(-50%, -50%)';
+                    loadingDiv.style.zIndex = '1000';
+                    loadingDiv.style.background = 'rgba(0, 0, 0, 0.9)';
+                    loadingDiv.style.padding = '20px 40px';
+                    loadingDiv.style.borderRadius = '12px';
+                    loadingDiv.style.border = '2px solid #ff6b35';
+                    document.body.appendChild(loadingDiv);
+                }
+
                 // First, get the bitmap data to extract bitmap number
                 const response = await fetch(`${API_URL}/bitmap/${inscriptionId}`);
                 const bitmap = await response.json();
                 
                 if (!bitmap) {
-                    console.error('Bitmap not found');
-                    return;
+                    throw new Error('Bitmap not found');
+                }
+
+                // Remove any existing visualization
+                const existingVisualization = document.getElementById('bitmapVisualization');
+                if (existingVisualization) {
+                    existingVisualization.remove();
                 }
 
                 // Create visualization container
                 const container = document.querySelector('.container');
-                let visualizationDiv = document.getElementById('bitmapVisualization');
-                
-                if (visualizationDiv) {
-                    visualizationDiv.remove();
-                }
-
-                visualizationDiv = document.createElement('div');
+                const visualizationDiv = document.createElement('div');
                 visualizationDiv.id = 'bitmapVisualization';
                 visualizationDiv.className = 'bitmap-visualization';
 
                 // Get pattern data
-                const patternResponse = await fetch(`${API_URL}/bitmap/${bitmap.bitmap_number}/pattern`);
                 let patternData = null;
-                
-                if (patternResponse.ok) {
-                    patternData = await patternResponse.json();
+                try {
+                    const patternResponse = await fetch(`${API_URL}/bitmap/${bitmap.bitmap_number}/pattern`);
+                    if (patternResponse.ok) {
+                        patternData = await patternResponse.json();
+                    }
+                } catch (error) {
+                    console.warn('Pattern data not available:', error);
                 }
 
+                const hasPattern = patternData && (patternData.txList || patternData.pattern);
+                
                 visualizationDiv.innerHTML = `
-                    <h3>Bitmap ${bitmap.bitmap_number}.bitmap Visualization</h3>
+                    <h3>🎨 Bitmap ${bitmap.bitmap_number}.bitmap Visualization</h3>
                     <div class="pattern-info">
-                        <div><strong>Inscription ID:</strong> ${bitmap.inscription_id}</div>
-                        <div><strong>Block Height:</strong> ${bitmap.block_height}</div>
-                        ${bitmap.sat ? `<div><strong>Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : ''}
-                        ${patternData ? `<div><strong>Transaction Pattern:</strong> ${patternData.pattern}</div>` : ''}
-                        ${patternData ? `<div><strong>Transaction Count:</strong> ${patternData.transaction_count}</div>` : ''}
+                        <div><strong>📄 Inscription ID:</strong> ${bitmap.inscription_id}</div>
+                        <div><strong>📏 Block Height:</strong> ${bitmap.block_height?.toLocaleString() || 'N/A'}</div>
+                        ${bitmap.sat ? `<div><strong>🔢 Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : ''}
+                        ${patternData?.pattern ? `<div><strong>🎯 Transaction Pattern:</strong> ${patternData.pattern}</div>` : ''}
+                        ${patternData?.transaction_count ? `<div><strong>📊 Transaction Count:</strong> ${patternData.transaction_count}</div>` : ''}
+                        ${bitmap.address ? `<div><strong>🏠 Address:</strong> ${bitmap.address}</div>` : ''}
+                        ${bitmap.timestamp ? `<div><strong>⏰ Created:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>` : ''}
                     </div>
                     <div class="visualization-controls">
-                        <button onclick="showOriginalContent('${inscriptionId}')">Show Original Content</button>
-                        ${patternData ? `<button onclick="renderMondrian('${bitmap.bitmap_number}', ${JSON.stringify(patternData).replace(/"/g, '&quot;')})">Show Mondrian Pattern</button>` : ''}
-                        <button class="close-visualization" onclick="closeVisualization()">Close</button>
+                        <button onclick="showOriginalContent('${inscriptionId}')">
+                            📱 Show Original Content
+                        </button>
+                        ${hasPattern ? `
+                            <button onclick="renderMondrian('${bitmap.bitmap_number}', ${JSON.stringify(patternData).replace(/"/g, '&quot;')})">
+                                🎨 Generate Art Pattern
+                            </button>
+                        ` : ''}
+                        <button onclick="downloadBitmapInfo('${bitmap.bitmap_number}', ${JSON.stringify(bitmap).replace(/"/g, '&quot;')})">
+                            💾 Download Info
+                        </button>
+                        <button class="close-visualization" onclick="closeVisualization()">
+                            ❌ Close
+                        </button>
                     </div>
                     <div id="canvasContainer"></div>
                     <div id="originalContent" style="display: none;">
-                        <iframe src="${CONTENT_URL}/content/${inscriptionId}" style="width: 100%; height: 400px; border: 1px solid #ccc;"></iframe>
+                        <h4 style="color: #ff6b35; margin-bottom: 15px;">📄 Original Bitmap Content</h4>
+                        <iframe src="${CONTENT_URL}/content/${inscriptionId}" style="width: 100%; height: 500px; border: 2px solid rgba(255, 107, 53, 0.3); border-radius: 12px; background: white;"></iframe>
                     </div>
                 `;
 
                 container.appendChild(visualizationDiv);
-                visualizationDiv.scrollIntoView({ behavior: 'smooth' });
+                
+                // Remove loading indicator
+                if (loadingDiv) {
+                    loadingDiv.remove();
+                }
+
+                // Smooth scroll to visualization with offset for better UX
+                setTimeout(() => {
+                    visualizationDiv.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'start' 
+                    });
+                }, 100);
 
             } catch (error) {
                 console.error('Error loading bitmap visualization:', error);
-                // Fallback to simple iframe
-                showSimpleIframe(inscriptionId);
-            }
-        }
+                
+                // Remove loading indicator
+                const loadingDiv = document.getElementById('loadingVisualization');
+                if (loadingDiv) {
+                    loadingDiv.remove();
+                }
 
-        function showOriginalContent(inscriptionId) {
+                // Show error message
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(220, 53, 69, 0.9);
+                    color: white;
+                    padding: 20px 40px;
+                    border-radius: 12px;
+                    border: 2px solid #dc3545;
+                    z-index: 1000;
+                    text-align: center;
+                `;
+                errorDiv.innerHTML = `
+                    <h4>❌ Error Loading Bitmap</h4>
+                    <p>Failed to load bitmap visualization.</p>
+                    <button onclick="this.parentElement.remove(); showSimpleIframe('${inscriptionId}')" 
+                            style="background: white; color: #dc3545; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 10px;">
+                        📱 Try Simple View
+                    </button>
+                    <button onclick="this.parentElement.remove()" 
+                            style="background: transparent; color: white; border: 1px solid white; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin: 10px 0 0 10px;">
+                        ❌ Close
+                    </button>
+                `;
+                document.body.appendChild(errorDiv);
+
+                // Auto-remove error after 5 seconds
+                setTimeout(() => {
+                    if (errorDiv.parentElement) {
+                        errorDiv.remove();
+                    }
+                }, 5000);
+            }
+        }        function showOriginalContent(inscriptionId) {
             const originalContent = document.getElementById('originalContent');
             if (originalContent) {
-                originalContent.style.display = originalContent.style.display === 'none' ? 'block' : 'none';
+                const isVisible = originalContent.style.display !== 'none';
+                originalContent.style.display = isVisible ? 'none' : 'block';
+                
+                // Update button text
+                const button = event.target;
+                if (button) {
+                    button.textContent = isVisible ? '📱 Show Original Content' : '🔒 Hide Original Content';
+                }
+
+                if (!isVisible) {
+                    // Scroll to content when showing
+                    setTimeout(() => {
+                        originalContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }, 100);
+                }
             }
         }
 
-        function renderMondrian(bitmapNumber, patternData) {
+        function downloadBitmapInfo(bitmapNumber, bitmapData) {
+            try {
+                const info = {
+                    bitmap_number: bitmapNumber,
+                    ...bitmapData,
+                    exported_at: new Date().toISOString(),
+                    exported_by: 'BRC-420 Indexer'
+                };
+
+                const dataStr = JSON.stringify(info, null, 2);
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(dataBlob);
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `bitmap-${bitmapNumber}-info.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                // Show success message
+                showNotification('💾 Bitmap info downloaded successfully!', 'success');
+            } catch (error) {
+                console.error('Error downloading bitmap info:', error);
+                showNotification('❌ Failed to download bitmap info', 'error');
+            }
+        }
+
+        // Main entry point for bitmap interaction
+        function loadBitmapInIframe(inscriptionId) {
+            showBitmapVisualization(inscriptionId);
+        }async function showBitmapVisualization(inscriptionId) {
+            try {
+                // Show loading state
+                let loadingDiv = document.getElementById('loadingVisualization');
+                if (!loadingDiv) {
+                    loadingDiv = document.createElement('div');
+                    loadingDiv.id = 'loadingVisualization';
+                    loadingDiv.className = 'loading';
+                    loadingDiv.textContent = 'Loading bitmap visualization...';
+                    loadingDiv.style.position = 'fixed';
+                    loadingDiv.style.top = '50%';
+                    loadingDiv.style.left = '50%';
+                    loadingDiv.style.transform = 'translate(-50%, -50%)';
+                    loadingDiv.style.zIndex = '1000';
+                    loadingDiv.style.background = 'rgba(0, 0, 0, 0.9)';
+                    loadingDiv.style.padding = '20px 40px';
+                    loadingDiv.style.borderRadius = '12px';
+                    loadingDiv.style.border = '2px solid #ff6b35';
+                    document.body.appendChild(loadingDiv);
+                }
+
+                // First, get the bitmap data to extract bitmap number
+                const response = await fetch(`${API_URL}/bitmap/${inscriptionId}`);
+                const bitmap = await response.json();
+                
+                if (!bitmap) {
+                    throw new Error('Bitmap not found');
+                }
+
+                // Remove any existing visualization
+                const existingVisualization = document.getElementById('bitmapVisualization');
+                if (existingVisualization) {
+                    existingVisualization.remove();
+                }
+
+                // Create visualization container
+                const container = document.querySelector('.container');
+                const visualizationDiv = document.createElement('div');
+                visualizationDiv.id = 'bitmapVisualization';
+                visualizationDiv.className = 'bitmap-visualization';
+
+                // Get pattern data
+                let patternData = null;
+                try {
+                    const patternResponse = await fetch(`${API_URL}/bitmap/${bitmap.bitmap_number}/pattern`);
+                    if (patternResponse.ok) {
+                        patternData = await patternResponse.json();
+                    }
+                } catch (error) {
+                    console.warn('Pattern data not available:', error);
+                }
+
+                const hasPattern = patternData && (patternData.txList || patternData.pattern);
+                
+                visualizationDiv.innerHTML = `
+                    <h3>🎨 Bitmap ${bitmap.bitmap_number}.bitmap Visualization</h3>
+                    <div class="pattern-info">
+                        <div><strong>📄 Inscription ID:</strong> ${bitmap.inscription_id}</div>
+                        <div><strong>📏 Block Height:</strong> ${bitmap.block_height?.toLocaleString() || 'N/A'}</div>
+                        ${bitmap.sat ? `<div><strong>🔢 Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : ''}
+                        ${patternData?.pattern ? `<div><strong>🎯 Transaction Pattern:</strong> ${patternData.pattern}</div>` : ''}
+                        ${patternData?.transaction_count ? `<div><strong>📊 Transaction Count:</strong> ${patternData.transaction_count}</div>` : ''}
+                        ${bitmap.address ? `<div><strong>🏠 Address:</strong> ${bitmap.address}</div>` : ''}
+                        ${bitmap.timestamp ? `<div><strong>⏰ Created:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>` : ''}
+                    </div>
+                    <div class="visualization-controls">
+                        <button onclick="showOriginalContent('${inscriptionId}')">
+                            📱 Show Original Content
+                        </button>
+                        ${hasPattern ? `
+                            <button onclick="renderMondrian('${bitmap.bitmap_number}', ${JSON.stringify(patternData).replace(/"/g, '&quot;')})">
+                                🎨 Generate Art Pattern
+                            </button>
+                        ` : ''}
+                        <button onclick="downloadBitmapInfo('${bitmap.bitmap_number}', ${JSON.stringify(bitmap).replace(/"/g, '&quot;')})">
+                            💾 Download Info
+                        </button>
+                        <button class="close-visualization" onclick="closeVisualization()">
+                            ❌ Close
+                        </button>
+                    </div>
+                    <div id="canvasContainer"></div>
+                    <div id="originalContent" style="display: none;">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px;">📄 Original Bitmap Content</h4>
+                        <iframe src="${CONTENT_URL}/content/${inscriptionId}" style="width: 100%; height: 500px; border: 2px solid rgba(255, 107, 53, 0.3); border-radius: 12px; background: white;"></iframe>
+                    </div>
+                `;
+
+                container.appendChild(visualizationDiv);
+                
+                // Remove loading indicator
+                if (loadingDiv) {
+                    loadingDiv.remove();
+                }
+
+                // Smooth scroll to visualization with offset for better UX
+                setTimeout(() => {
+                    visualizationDiv.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'start' 
+                    });
+                }, 100);
+
+            } catch (error) {
+                console.error('Error loading bitmap visualization:', error);
+                
+                // Remove loading indicator
+                const loadingDiv = document.getElementById('loadingVisualization');
+                if (loadingDiv) {
+                    loadingDiv.remove();
+                }
+
+                // Show error message
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(220, 53, 69, 0.9);
+                    color: white;
+                    padding: 20px 40px;
+                    border-radius: 12px;
+                    border: 2px solid #dc3545;
+                    z-index: 1000;
+                    text-align: center;
+                `;
+                errorDiv.innerHTML = `
+                    <h4>❌ Error Loading Bitmap</h4>
+                    <p>Failed to load bitmap visualization.</p>
+                    <button onclick="this.parentElement.remove(); showSimpleIframe('${inscriptionId}')" 
+                            style="background: white; color: #dc3545; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 10px;">
+                        📱 Try Simple View
+                    </button>
+                    <button onclick="this.parentElement.remove()" 
+                            style="background: transparent; color: white; border: 1px solid white; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin: 10px 0 0 10px;">
+                        ❌ Close
+                    </button>
+                `;
+                document.body.appendChild(errorDiv);
+
+                // Auto-remove error after 5 seconds
+                setTimeout(() => {
+                    if (errorDiv.parentElement) {
+                        errorDiv.remove();
+                    }
+                }, 5000);
+            }
+        }        function renderMondrian(bitmapNumber, patternData) {
             try {
                 const canvasContainer = document.getElementById('canvasContainer');
                 if (!canvasContainer) return;
 
-                // Clear previous canvas
-                canvasContainer.innerHTML = '';
-
-                // Create canvas
-                const canvas = document.createElement('canvas');
-                canvas.className = 'bitmap-canvas';
-                canvasContainer.appendChild(canvas);                // Extract pattern array from the data - use txList as primary
-                let txList = [];
-                if (patternData.txList && Array.isArray(patternData.txList)) {
-                    txList = patternData.txList;
-                } else if (patternData.pattern && typeof patternData.pattern === 'string') {
-                    txList = window.getPatternArray(patternData.pattern);
-                } else if (patternData.squareSizes && Array.isArray(patternData.squareSizes)) {
-                    txList = patternData.squareSizes; // Backward compatibility
-                }                if (txList.length === 0) {
-                    canvasContainer.innerHTML = '<p style="color: white;">No pattern data available for visualization.</p>';
-                    return;
-                }
-
-                // Create Mondrian layout
-                const mondrian = new window.MondrianLayout(txList);
-
-                // Render to canvas
-                window.renderMondrianToCanvas(mondrian, canvas, {
-                    cellSize: 15,
-                    strokeWidth: 1,
-                    backgroundColor: '#ffffff',
-                    strokeColor: '#000000',
-                    showEmptySpaces: true
-                });
-
-                // Add pattern info
-                const info = document.createElement('div');
-                info.className = 'pattern-info';                info.innerHTML = `
-                    <p><strong>Pattern Visualization for Bitmap ${bitmapNumber}</strong></p>
-                    <p>Transaction List: [${txList.join(', ')}]</p>
-                    <p>Canvas Size: ${mondrian.getSize().width} x ${mondrian.getSize().height}</p>
-                    <p>Each square represents a transaction in block ${patternData.block_height || 'N/A'}</p>
+                // Show loading state
+                canvasContainer.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #ff6b35;">
+                        <div class="loading">🎨 Generating art pattern...</div>
+                    </div>
                 `;
-                canvasContainer.appendChild(info);
+
+                // Clear previous canvas after a short delay to show loading
+                setTimeout(() => {
+                    canvasContainer.innerHTML = '';
+
+                    // Create canvas with improved styling
+                    const canvas = document.createElement('canvas');
+                    canvas.className = 'bitmap-canvas';
+                    canvas.style.cssText = `
+                        max-width: 100%;
+                        height: auto;
+                        border: 2px solid rgba(255, 107, 53, 0.3);
+                        border-radius: 12px;
+                        background: white;
+                        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+                        margin: 20px auto;
+                        display: block;
+                    `;
+                    
+                    // Extract pattern array from the data - use txList as primary
+                    let txList = [];
+                    if (patternData.txList && Array.isArray(patternData.txList)) {
+                        txList = patternData.txList;
+                    } else if (patternData.pattern && typeof patternData.pattern === 'string') {
+                        txList = window.getPatternArray ? window.getPatternArray(patternData.pattern) : [];
+                    } else if (patternData.squareSizes && Array.isArray(patternData.squareSizes)) {
+                        txList = patternData.squareSizes; // Backward compatibility
+                    }
+
+                    if (txList.length === 0) {
+                        canvasContainer.innerHTML = `
+                            <div style="text-align: center; padding: 40px; background: rgba(220, 53, 69, 0.1); border: 2px solid rgba(220, 53, 69, 0.3); border-radius: 12px; color: white;">
+                                <h4 style="color: #dc3545; margin-bottom: 15px;">⚠️ No Pattern Data Available</h4>
+                                <p>This bitmap doesn't have sufficient transaction data to generate an art pattern.</p>
+                                <p style="margin-top: 15px; font-size: 14px; opacity: 0.8;">
+                                    Pattern generation requires transaction history data from the blockchain.
+                                </p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    // Create Mondrian layout with error handling
+                    let mondrian;
+                    try {
+                        mondrian = new window.MondrianLayout(txList);
+                    } catch (error) {
+                        throw new Error('Failed to create Mondrian layout: ' + error.message);
+                    }
+
+                    // Render to canvas with enhanced options
+                    try {
+                        window.renderMondrianToCanvas(mondrian, canvas, {
+                            cellSize: 20,
+                            strokeWidth: 2,
+                            backgroundColor: '#ffffff',
+                            strokeColor: '#000000',
+                            showEmptySpaces: true,
+                            colorPalette: ['#ff6b35', '#f7931e', '#2e82b9', '#28a745', '#dc3545', '#6f42c1']
+                        });
+                    } catch (error) {
+                        throw new Error('Failed to render to canvas: ' + error.message);
+                    }
+
+                    canvasContainer.appendChild(canvas);
+
+                    // Add enhanced pattern info with better styling
+                    const info = document.createElement('div');
+                    info.className = 'pattern-info';
+                    info.style.cssText = `
+                        background: rgba(255, 107, 53, 0.1);
+                        border: 2px solid rgba(255, 107, 53, 0.3);
+                        border-radius: 12px;
+                        padding: 25px;
+                        margin: 20px 0;
+                        color: white;
+                        font-family: 'Courier New', monospace;
+                    `;
+
+                    const canvasSize = mondrian.getSize();
+                    info.innerHTML = `
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-family: 'Segoe UI', sans-serif;">
+                            🎨 Generated Art Pattern for Bitmap ${bitmapNumber}
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                            <div>
+                                <strong>📊 Transaction List:</strong><br>
+                                [${txList.slice(0, 10).join(', ')}${txList.length > 10 ? '...' : ''}]
+                            </div>
+                            <div>
+                                <strong>📏 Canvas Dimensions:</strong><br>
+                                ${canvasSize.width} × ${canvasSize.height} units
+                            </div>
+                            <div>
+                                <strong>🧮 Total Transactions:</strong><br>
+                                ${txList.length} transactions
+                            </div>
+                            <div>
+                                <strong>⛏️ Block Height:</strong><br>
+                                ${patternData.block_height?.toLocaleString() || 'Unknown'}
+                            </div>
+                        </div>
+                        <p style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255, 107, 53, 0.3); font-size: 14px; opacity: 0.9;">
+                            💡 This unique pattern is generated from the transaction data associated with this bitmap inscription.
+                            Each square represents a transaction, creating a one-of-a-kind visual signature.
+                        </p>
+                    `;
+                    canvasContainer.appendChild(info);
+
+                    // Add download button for the generated art
+                    const downloadButton = document.createElement('button');
+                    downloadButton.style.cssText = `
+                        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        margin: 20px auto;
+                        display: block;
+                        transition: all 0.3s ease;
+                    `;
+                    downloadButton.textContent = '💾 Download Art as PNG';
+                    downloadButton.onclick = () => downloadCanvas(canvas, `bitmap-${bitmapNumber}-art`);
+                    downloadButton.onmouseover = () => {
+                        downloadButton.style.transform = 'translateY(-2px)';
+                        downloadButton.style.boxShadow = '0 8px 25px rgba(40, 167, 69, 0.4)';
+                    };
+                    downloadButton.onmouseout = () => {
+                        downloadButton.style.transform = '';
+                        downloadButton.style.boxShadow = '';
+                    };
+                    canvasContainer.appendChild(downloadButton);
+
+                    showNotification('🎨 Art pattern generated successfully!', 'success');
+
+                }, 500); // Small delay to show loading state
 
             } catch (error) {
                 console.error('Error rendering Mondrian pattern:', error);
                 const canvasContainer = document.getElementById('canvasContainer');
                 if (canvasContainer) {
-                    canvasContainer.innerHTML = '<p style="color: red;">Error rendering pattern visualization.</p>';
+                    canvasContainer.innerHTML = `
+                        <div style="text-align: center; padding: 40px; background: rgba(220, 53, 69, 0.1); border: 2px solid rgba(220, 53, 69, 0.3); border-radius: 12px; color: white;">
+                            <h4 style="color: #dc3545; margin-bottom: 15px;">❌ Art Generation Failed</h4>
+                            <p>Unable to generate the art pattern for this bitmap.</p>
+                            <p style="margin-top: 10px; font-size: 14px; opacity: 0.8;">
+                                Error: ${error.message}
+                            </p>
+                            <button onclick="renderMondrian('${bitmapNumber}', ${JSON.stringify(patternData).replace(/"/g, '&quot;')})" 
+                                    style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 15px;">
+                                🔄 Try Again
+                            </button>
+                        </div>
+                    `;
                 }
+                showNotification('❌ Failed to generate art pattern', 'error');
+            }
+        }
+
+        function downloadCanvas(canvas, filename) {
+            try {
+                const link = document.createElement('a');
+                link.download = `${filename}.png`;
+                link.href = canvas.toDataURL();
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showNotification('💾 Art downloaded successfully!', 'success');
+            } catch (error) {
+                console.error('Error downloading canvas:', error);
+                showNotification('❌ Failed to download art', 'error');
             }
         }
 
@@ -503,6 +1892,762 @@
 
             // Scroll to the iframe
             iframeContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Add missing regenerate and download functions for backward compatibility
+        function regenerateVisualization() {
+            const visualizationDiv = document.getElementById('bitmapVisualization');
+            if (visualizationDiv) {
+                const canvasContainer = document.getElementById('canvasContainer');
+                if (canvasContainer) {
+                    canvasContainer.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #ff6b35;">
+                            <div class="loading">🔄 Regenerating visualization...</div>
+                        </div>
+                    `;
+                    
+                    setTimeout(() => {
+                        // Find the render button and click it to regenerate
+                        const renderButton = Array.from(document.querySelectorAll('.visualization-controls button'))
+                            .find(btn => btn.textContent.includes('Generate Art Pattern'));
+                        if (renderButton) {
+                            renderButton.click();
+                        }
+                    }, 500);
+                }
+            }
+        }
+
+        function downloadVisualization() {
+            const canvas = document.querySelector('.bitmap-canvas');
+            if (canvas) {
+                downloadCanvas(canvas, 'bitmap-visualization');
+            } else {
+                showNotification('❌ No visualization to download', 'error');
+            }
+        }        // Enhanced Modal System for Bitmap Display
+        function showBitmapModal(bitmap) {
+            // Remove existing modal if any
+            const existingModal = document.getElementById('bitmapModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            // Create modal overlay
+            const modalOverlay = document.createElement('div');
+            modalOverlay.id = 'bitmapModal';
+            modalOverlay.className = 'modal-overlay';
+            modalOverlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                backdrop-filter: blur(5px);
+                z-index: 1000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                opacity: 0;
+                visibility: hidden;
+                transition: all 0.3s ease;
+            `;
+
+            // Create modal content
+            const modalContent = document.createElement('div');
+            modalContent.className = 'modal-content';
+            modalContent.style.cssText = `
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                border-radius: 20px;
+                max-width: 90vw;
+                max-height: 90vh;
+                overflow-y: auto;
+                border: 2px solid rgba(255, 107, 53, 0.3);
+                box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+                transform: scale(0.8);
+                transition: transform 0.3s ease;
+                position: relative;
+                min-width: 700px;
+            `;
+
+            // Create modal header
+            const modalHeader = document.createElement('div');
+            modalHeader.className = 'modal-header';
+            modalHeader.style.cssText = `
+                background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                color: white;
+                padding: 20px;
+                border-radius: 18px 18px 0 0;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            `;
+
+            modalHeader.innerHTML = `
+                <h2 style="margin: 0; font-size: 1.8rem; font-weight: 700;">
+                    🎨 Bitmap #${bitmap.bitmap_number}
+                </h2>
+                <button class="modal-close" style="
+                    background: rgba(255, 255, 255, 0.2);
+                    border: none;
+                    color: white;
+                    font-size: 1.5rem;
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                " onmouseover="this.style.background='rgba(255,255,255,0.3)'; this.style.transform='scale(1.1)'" 
+                   onmouseout="this.style.background='rgba(255,255,255,0.2)'; this.style.transform='scale(1)'"
+                   onclick="closeBitmapModal()">×</button>
+            `;
+
+            // Create modal body
+            const modalBody = document.createElement('div');
+            modalBody.className = 'modal-body';
+            modalBody.style.cssText = `
+                padding: 30px;
+                color: #e0e0e0;
+            `;
+
+            // Get pattern data for Mondrian preview
+            let mondrianHtml = '';
+            if (bitmap.pattern && bitmap.txList && Array.isArray(bitmap.txList)) {
+                mondrianHtml = `
+                    <div class="modal-mondrian" style="text-align: center; margin-bottom: 30px;">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px;">🎨 Transaction Pattern Visualization</h4>
+                        <canvas id="modalMondrianCanvas" width="400" height="400" style="
+                            border: 2px solid rgba(255, 107, 53, 0.3);
+                            border-radius: 12px;
+                            background: white;
+                            max-width: 100%;
+                            height: auto;
+                            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                        "></canvas>
+                        <div style="margin-top: 15px; font-size: 14px; opacity: 0.8;">
+                            Generated from ${bitmap.txList.length} transaction${bitmap.txList.length !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Create detailed information sections
+            modalBody.innerHTML = `
+                ${mondrianHtml}
+                
+                <div class="modal-details" style="
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 20px;
+                    margin-top: 30px;
+                ">
+                    <div class="detail-group" style="
+                        background: rgba(255, 255, 255, 0.05);
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255, 107, 53, 0.2);
+                    ">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-size: 1.1rem;">📄 Basic Information</h4>
+                        <div style="line-height: 1.8;">
+                            <div><strong>Inscription ID:</strong><br>
+                                <span style="font-family: monospace; font-size: 11px; word-break: break-all;">${bitmap.inscription_id}</span>
+                            </div>
+                            <div style="margin-top: 10px;"><strong>Bitmap Number:</strong> ${bitmap.bitmap_number}</div>
+                            ${bitmap.sat ? `<div style="margin-top: 10px;"><strong>Sat Number:</strong> ${bitmap.sat.toLocaleString()}</div>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="detail-group" style="
+                        background: rgba(255, 255, 255, 0.05);
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255, 107, 53, 0.2);
+                    ">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-size: 1.1rem;">⛏️ Blockchain Data</h4>
+                        <div style="line-height: 1.8;">
+                            <div><strong>Block Height:</strong> ${bitmap.block_height?.toLocaleString() || 'N/A'}</div>
+                            ${bitmap.timestamp ? `<div style="margin-top: 10px;"><strong>Timestamp:</strong> ${new Date(bitmap.timestamp).toLocaleString()}</div>` : ''}
+                            ${bitmap.transaction_count ? `<div style="margin-top: 10px;"><strong>Transactions:</strong> ${bitmap.transaction_count}</div>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="detail-group" style="
+                        background: rgba(255, 255, 255, 0.05);
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255, 107, 53, 0.2);
+                    ">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-size: 1.1rem;">🏠 Ownership</h4>
+                        <div style="line-height: 1.8;" id="ownershipInfo">
+                            <div><strong>Current Address:</strong><br>
+                                <span style="font-family: monospace; font-size: 11px; word-break: break-all;">${bitmap.address || 'N/A'}</span>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <button onclick="loadAddressHistory('${bitmap.inscription_id}')" style="
+                                    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                                    color: white;
+                                    border: none;
+                                    padding: 8px 16px;
+                                    border-radius: 6px;
+                                    cursor: pointer;
+                                    font-size: 12px;
+                                    transition: all 0.3s ease;
+                                " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                    📊 View Address History
+                                </button>
+                            </div>
+                            <div id="addressHistoryContainer" style="margin-top: 15px;"></div>
+                        </div>
+                    </div>
+
+                    <div class="detail-group" style="
+                        background: rgba(255, 255, 255, 0.05);
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255, 107, 53, 0.2);
+                    ">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-size: 1.1rem;">🎯 Pattern Data</h4>
+                        <div style="line-height: 1.8;">
+                            ${bitmap.pattern ? `<div><strong>Pattern:</strong><br><span style="font-family: monospace; font-size: 11px; word-break: break-all;">${bitmap.pattern}</span></div>` : ''}
+                            ${bitmap.txList ? `<div style="margin-top: 10px;"><strong>Transaction List:</strong> ${bitmap.txList.length} entries</div>` : ''}
+                            ${!bitmap.pattern && !bitmap.txList ? '<div style="color: #999;">No pattern data available</div>' : ''}
+                        </div>
+                    </div>
+
+                    <div class="detail-group" style="
+                        background: rgba(255, 255, 255, 0.05);
+                        padding: 20px;
+                        border-radius: 12px;
+                        border: 1px solid rgba(255, 107, 53, 0.2);
+                    ">
+                        <h4 style="color: #ff6b35; margin-bottom: 15px; font-size: 1.1rem;">📦 Related Parcels</h4>
+                        <div style="line-height: 1.8;">
+                            <button onclick="loadParcelsForBitmap('${bitmap.bitmap_number}', this)" style="
+                                background: rgba(255, 107, 53, 0.2);
+                                border: 1px solid rgba(255, 107, 53, 0.4);
+                                color: #ff6b35;
+                                padding: 8px 16px;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 12px;
+                                transition: all 0.3s ease;
+                                display: block;
+                                margin-bottom: 10px;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                📦 Load Parcels for this Bitmap
+                            </button>
+                            <div id="parcelContainer" style="display: none; margin-top: 15px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px; text-align: center;">
+                    <button onclick="showBitmapVisualization('${bitmap.inscription_id}')" style="
+                        background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        margin: 0 10px;
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(255, 107, 53, 0.4)'" 
+                       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
+                        🎨 Full Visualization
+                    </button>
+                    
+                    <button onclick="downloadBitmapInfo('${bitmap.bitmap_number}', ${JSON.stringify(bitmap).replace(/"/g, '&quot;')})" style="
+                        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        margin: 0 10px;
+                        transition: all 0.3s ease;
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(40, 167, 69, 0.4)'" 
+                       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow=''">
+                        💾 Download Info
+                    </button>
+                </div>
+            `;
+
+            // Assemble modal
+            modalContent.appendChild(modalHeader);
+            modalContent.appendChild(modalBody);
+            modalOverlay.appendChild(modalContent);
+            document.body.appendChild(modalOverlay);
+
+            // Show modal with animation
+            setTimeout(() => {
+                modalOverlay.style.opacity = '1';
+                modalOverlay.style.visibility = 'visible';
+                modalContent.style.transform = 'scale(1)';
+            }, 10);
+
+            // Generate Mondrian if pattern data exists
+            if (bitmap.pattern && bitmap.txList && Array.isArray(bitmap.txList)) {
+                setTimeout(() => {
+                    try {
+                        const canvas = document.getElementById('modalMondrianCanvas');
+                        if (canvas && window.MondrianLayout) {
+                            const mondrian = new window.MondrianLayout(bitmap.txList);
+                            window.renderMondrianToCanvas(mondrian, canvas, {
+                                cellSize: Math.min(400 / Math.max(mondrian.width, mondrian.height), 20),
+                                strokeWidth: 2,
+                                backgroundColor: '#ffffff',
+                                strokeColor: '#000000',
+                                showEmptySpaces: true,
+                                colorPalette: ['#ff6b35', '#f7931e', '#2e82b9', '#28a745', '#dc3545', '#6f42c1']
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Error generating modal Mondrian:', error);
+                    }
+                }, 100);
+            }
+
+            // Close modal on overlay click
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) {
+                    closeBitmapModal();
+                }
+            });
+
+            // Escape key to close modal
+            const escapeHandler = (e) => {
+                if (e.key === 'Escape') {
+                    closeBitmapModal();
+                    document.removeEventListener('keydown', escapeHandler);
+                }
+            };
+            document.addEventListener('keydown', escapeHandler);
+
+            showNotification('📱 Bitmap details loaded', 'success');
+        }
+
+        function closeBitmapModal() {
+            const modal = document.getElementById('bitmapModal');
+            if (modal) {
+                modal.style.opacity = '0';
+                modal.style.visibility = 'hidden';
+                setTimeout(() => {
+                    modal.remove();
+                }, 300);
+            }
+        }
+
+        // Address History Loading System
+        async function loadAddressHistory(inscriptionId) {
+            const container = document.getElementById('addressHistoryContainer');
+            if (!container) return;
+
+            try {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 15px; color: #ff6b35;">
+                        <div style="font-size: 12px;">🔍 Loading address history...</div>
+                    </div>
+                `;
+
+                // Fetch address history from API
+                const response = await fetch(`${API_URL}/inscription/${inscriptionId}/address-history`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const historyData = await response.json();
+                
+                if (!historyData.history || historyData.history.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 15px; color: #999; font-size: 12px;">
+                            No address transfer history found
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Display address history
+                let historyHtml = `
+                    <div style="margin-top: 10px;">
+                        <strong style="color: #ff6b35; font-size: 13px;">📊 Address Transfer History</strong>
+                        <div style="max-height: 200px; overflow-y: auto; margin-top: 10px; border: 1px solid rgba(255, 107, 53, 0.2); border-radius: 6px; padding: 10px; background: rgba(0, 0, 0, 0.2);">
+                `;
+
+                historyData.history.forEach((entry, index) => {
+                    const date = new Date(entry.timestamp).toLocaleDateString();
+                    const verificationBadge = entry.verification_status === 'verified' ? 
+                        '<span style="color: #28a745;">✅</span>' : 
+                        '<span style="color: #ffc107;">⏳</span>';
+                    
+                    historyHtml += `
+                        <div style="margin-bottom: 8px; padding: 8px; border-left: 2px solid #ff6b35; padding-left: 10px; font-size: 11px;">
+                            <div><strong>Transfer #${index + 1}</strong> ${verificationBadge}</div>
+                            <div style="color: #ccc; margin-top: 3px;">
+                                From: <span style="font-family: monospace;">${entry.old_address.substring(0, 8)}...${entry.old_address.slice(-4)}</span><br>
+                                To: <span style="font-family: monospace;">${entry.new_address.substring(0, 8)}...${entry.new_address.slice(-4)}</span><br>
+                                Block: ${entry.block_height?.toLocaleString()} • ${date}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                historyHtml += `
+                        </div>
+                        <div style="margin-top: 10px; font-size: 11px; color: #999; text-align: center;">
+                            Total: ${historyData.history.length} transfer${historyData.history.length !== 1 ? 's' : ''}
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML = historyHtml;
+
+                showNotification('📊 Address history loaded', 'success');
+
+            } catch (error) {
+                console.error('Error loading address history:', error);
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 15px; color: #dc3545; font-size: 12px;">
+                        ❌ Failed to load address history<br>
+                        <span style="color: #999;">${error.message}</span>
+                    </div>
+                `;
+                showNotification('❌ Failed to load address history', 'error');
+            }
+        }
+
+        // Function to load parcels for a specific bitmap
+        function loadParcelsForBitmap(bitmapNumber, button) {
+            const parcelContainer = button.nextElementSibling;
+            
+            if (parcelContainer.style.display === 'none') {
+                parcelContainer.style.display = 'block';
+                button.textContent = '📦 Hide Parcels';
+                parcelContainer.innerHTML = 'Loading parcels...';
+                
+                fetch(`${API_URL}/bitmap/${bitmapNumber}/parcels`)
+                    .then(response => response.json())
+                    .then(parcels => {
+                        if (parcels.length === 0) {
+                            parcelContainer.innerHTML = '<span style="color: #888;">No parcels found for this bitmap</span>';
+                            return;
+                        }
+                        
+                        const parcelsHtml = parcels.map((parcel, index) => `
+                            <div style="padding: 8px; margin: 5px 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; background: rgba(0,0,0,0.2);">
+                                <div style="color: #ff6b35; font-weight: bold; font-size: 10px;">
+                                    Parcel #${parcel.parcel_number} (${parcel.parcel_number}.${parcel.bitmap_number}.bitmap)
+                                </div>
+                                <div style="color: #888; font-size: 9px; margin-top: 2px;">
+                                    ID: ${parcel.inscription_id.substring(0, 20)}...
+                                </div>
+                                <div style="color: #4ade80; font-size: 9px;">
+                                    Wallet: ${parcel.wallet ? parcel.wallet.substring(0, 16) + '...' : 'N/A'}
+                                </div>
+                                <div style="color: #888; font-size: 8px; margin-top: 2px;">
+                                    Block: ${parcel.block_height} | ${new Date(parcel.timestamp).toLocaleDateString()}
+                                </div>
+                                <button onclick="showParcelDetails('${parcel.inscription_id}')" style="
+                                    background: rgba(0, 255, 255, 0.2);
+                                    border: 1px solid rgba(0, 255, 255, 0.3);
+                                    color: #00ffff;
+                                    padding: 3px 8px;
+                                    border-radius: 4px;
+                                    cursor: pointer;
+                                    font-size: 8px;
+                                    margin-top: 4px;
+                                ">View Details</button>
+                            </div>
+                        `).join('');
+                        
+                        parcelContainer.innerHTML = `
+                            <div style="font-size: 11px; margin-bottom: 8px; color: #ff6b35;">
+                                Found ${parcels.length} parcel${parcels.length !== 1 ? 's' : ''}:
+                            </div>
+                            ${parcelsHtml}
+                        `;
+                    })
+                    .catch(error => {
+                        console.error('Error loading parcels:', error);
+                        parcelContainer.innerHTML = '<span style="color: #dc3545;">Error loading parcels</span>';
+                    });
+            } else {
+                parcelContainer.style.display = 'none';
+                button.textContent = '📦 Load Parcels for this Bitmap';
+            }
+        }
+
+        // Function to show parcel details
+        function showParcelDetails(inscriptionId) {
+            // Fetch detailed parcel information
+            fetch(`${API_URL}/parcel/${inscriptionId}`)
+                .then(response => response.json())
+                .then(parcel => {
+                    // Create modal for parcel details
+                    const modal = document.createElement('div');
+                    modal.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0, 0, 0, 0.8);
+                        z-index: 1000;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                    `;
+                    
+                    modal.innerHTML = `
+                        <div style="
+                            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                            border-radius: 20px;
+                            max-width: 600px;
+                            max-height: 80vh;
+                            overflow-y: auto;
+                            border: 2px solid rgba(255, 107, 53, 0.3);
+                            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+                            position: relative;
+                        ">
+                            <div style="
+                                background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                                color: white;
+                                padding: 20px;
+                                border-radius: 18px 18px 0 0;
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center;
+                            ">
+                                <h3>📦 Parcel #${parcel.parcel_number} Details</h3>
+                                <button onclick="this.closest('[style*=\"position: fixed\"]').remove()" style="
+                                    background: rgba(255, 255, 255, 0.2);
+                                    border: none;
+                                    color: white;
+                                    font-size: 1.2rem;
+                                    width: 30px;
+                                    height: 30px;
+                                    border-radius: 50%;
+                                    cursor: pointer;
+                                ">×</button>
+                            </div>
+                            <div style="padding: 20px; color: #e0e0e0;">
+                                <div style="line-height: 1.8;">
+                                    <div><strong>Parcel Format:</strong> ${parcel.parcel_number}.${parcel.bitmap_number}.bitmap</div>
+                                    <div><strong>Inscription ID:</strong><br>
+                                        <span style="font-family: monospace; font-size: 11px; word-break: break-all;">${parcel.inscription_id}</span>
+                                    </div>
+                                    <div><strong>Parent Bitmap:</strong> #${parcel.bitmap_number}</div>
+                                    <div><strong>Current Wallet:</strong><br>
+                                        <span style="font-family: monospace; font-size: 11px; color: #4ade80;">${parcel.wallet || 'N/A'}</span>
+                                    </div>
+                                    <div><strong>Block Height:</strong> ${parcel.block_height?.toLocaleString() || 'N/A'}</div>
+                                    <div><strong>Timestamp:</strong> ${new Date(parcel.timestamp).toLocaleString()}</div>
+                                    <div><strong>Provenance Validated:</strong> ${parcel.provenance_validated ? '✅ Yes' : '❌ No'}</div>
+                                </div>
+                                
+                                <div style="margin-top: 20px; text-align: center;">
+                                    <button onclick="loadParcelTransferHistory('${parcel.inscription_id}')" style="
+                                        background: linear-gradient(135deg, #00ffff 0%, #00e5ff 100%);
+                                        color: #000;
+                                        border: none;
+                                        padding: 10px 20px;
+                                        border-radius: 8px;
+                                        cursor: pointer;
+                                        margin: 5px;
+                                    ">📈 Transfer History</button>
+                                    
+                                    <button onclick="window.open('${CONTENT_URL}/content/${parcel.inscription_id}', '_blank')" style="
+                                        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+                                        color: white;
+                                        border: none;
+                                        padding: 10px 20px;
+                                        border-radius: 8px;
+                                        cursor: pointer;
+                                        margin: 5px;
+                                    ">📄 View Content</button>
+                                </div>
+                                
+                                <div id="parcelTransferHistory" style="margin-top: 15px; display: none;"></div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.body.appendChild(modal);
+                    modal.addEventListener('click', (e) => {
+                        if (e.target === modal) modal.remove();
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading parcel details:', error);
+                    showNotification('❌ Error loading parcel details', 'error');
+                });
+        }
+
+        // Function to load transfer history for parcels
+        function loadParcelTransferHistory(inscriptionId) {
+            const historyDiv = document.getElementById('parcelTransferHistory');
+            if (historyDiv.style.display === 'none') {
+                historyDiv.style.display = 'block';
+                historyDiv.innerHTML = 'Loading transfer history...';
+                
+                fetch(`${API_URL}/parcel/${inscriptionId}/address-history`)
+                    .then(response => response.json())
+                    .then(history => {
+                        if (history.length === 0) {
+                            historyDiv.innerHTML = '<div style="color: #888; padding: 10px;">No transfers - still with original address</div>';
+                            return;
+                        }
+                        
+                        const historyHtml = history.map((transfer, index) => `
+                            <div style="padding: 8px; margin: 5px 0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; background: rgba(0,0,0,0.3);">
+                                <div style="color: #ff6b35; font-weight: bold; font-size: 11px;">Transfer ${index + 1} - Block ${transfer.block_height}</div>
+                                <div style="color: #888; font-size: 10px;">
+                                    ${transfer.old_address ? `From: ${transfer.old_address.substring(0, 20)}...` : 'Initial'}
+                                </div>
+                                <div style="color: #4ade80; font-size: 10px;">
+                                    To: ${transfer.new_address.substring(0, 20)}...
+                                </div>
+                            </div>
+                        `).join('');
+                        
+                        historyDiv.innerHTML = `
+                            <h4 style="color: #ff6b35; margin-bottom: 10px;">📈 Transfer History</h4>
+                            ${historyHtml}
+                        `;
+                    })
+                    .catch(error => {
+                        console.error('Error loading parcel transfer history:', error);
+                        historyDiv.innerHTML = '<div style="color: #dc3545; padding: 10px;">Error loading transfer history</div>';
+                    });
+            } else {
+                historyDiv.style.display = 'none';
+            }
+        }
+
+        // Enhanced scroll handling for infinite loading
+        let isScrollHandlerBound = false;
+        
+        function handleScroll() {
+            if (isLoading) return;
+            
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const windowHeight = window.innerHeight;
+            const documentHeight = document.documentElement.scrollHeight;
+            
+            // Load more when 80% scrolled
+            if (scrollTop + windowHeight >= documentHeight * 0.8) {
+                loadBitmaps(lastQuery);
+            }
+        }
+
+        // Scroll to top functionality
+        function addScrollToTop() {
+            const scrollButton = document.createElement('button');
+            scrollButton.innerHTML = '↑';
+            scrollButton.style.cssText = `
+                position: fixed;
+                bottom: 30px;
+                right: 30px;
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+                color: white;
+                border: none;
+                font-size: 20px;
+                font-weight: bold;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+                transition: all 0.3s ease;
+                z-index: 999;
+                opacity: 0;
+                visibility: hidden;
+            `;
+            
+            scrollButton.addEventListener('click', () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            
+            scrollButton.addEventListener('mouseenter', () => {
+                scrollButton.style.transform = 'scale(1.1)';
+                scrollButton.style.boxShadow = '0 6px 20px rgba(255, 107, 53, 0.4)';
+            });
+            
+            scrollButton.addEventListener('mouseleave', () => {
+                scrollButton.style.transform = 'scale(1)';
+                scrollButton.style.boxShadow = '0 4px 15px rgba(255, 107, 53, 0.3)';
+            });
+            
+            document.body.appendChild(scrollButton);
+            
+            // Show/hide scroll button based on scroll position
+            window.addEventListener('scroll', () => {
+                if (window.pageYOffset > 300) {
+                    scrollButton.style.opacity = '1';
+                    scrollButton.style.visibility = 'visible';
+                } else {
+                    scrollButton.style.opacity = '0';
+                    scrollButton.style.visibility = 'hidden';
+                }
+            });        }
+
+        // Function to load transfer history for a specific bitmap
+        function loadBitmapTransferHistory(inscriptionId, button) {
+            const transferDiv = button.nextElementSibling;
+            
+            if (transferDiv.style.display === 'none') {
+                transferDiv.style.display = 'block';
+                button.textContent = '📉 Hide History';
+                transferDiv.innerHTML = 'Loading...';
+                
+                fetch(`${API_URL}/inscription/${inscriptionId}/address-history`)
+                    .then(response => response.json())
+                    .then(history => {
+                        if (history.length === 0) {
+                            transferDiv.innerHTML = '<span style="color: #888;">No transfers - still with original address</span>';
+                            return;
+                        }
+                        
+                        const historyHtml = history.map((transfer, index) => `
+                            <div style="padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                <div style="color: #ff6b35; font-weight: bold; font-size: 9px;">Transfer ${index + 1} - Block ${transfer.block_height}</div>
+                                <div style="color: #888; font-size: 9px; margin-top: 3px;">
+                                    ${transfer.old_address ? `From: ${transfer.old_address.substring(0, 14)}...` : 'Initial'}
+                                </div>
+                                <div style="color: #4ade80; font-size: 9px;">
+                                    To: ${transfer.new_address.substring(0, 14)}...
+                                </div>
+                            </div>
+                        `).join('');
+                        
+                        transferDiv.innerHTML = historyHtml;
+                    })
+                    .catch(error => {
+                        console.error('Error loading transfer history:', error);
+                        transferDiv.innerHTML = '<span style="color: #dc3545;">Error loading history</span>';
+                    });
+            } else {
+                transferDiv.style.display = 'none';
+                button.textContent = '📈 Transfer History';
+            }
+        }
+
+        // Debounce utility function
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
         }
     </script>
 </body>

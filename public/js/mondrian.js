@@ -1,23 +1,24 @@
 // Mondrian layout utilities for bitmap visualization
+// Pattern data now comes from the database via the API endpoints:
+// /api/bitmap/:bitmap_number/pattern - for specific bitmap patterns
+// /api/bitmaps/search - for bitmap data with embedded pattern info
 
-// Function to get square size based on transaction value (Bitcoin amount)
-export const getSquareSize = (value) => {
-    const btcValue = value / 100000000; // Convert satoshis to BTC
-    
-    if (btcValue === 0) return 0; 
-    if (btcValue <= 0.01) return 1;
-    if (btcValue <= 0.1) return 2;
-    if (btcValue <= 1) return 3;
-    if (btcValue <= 10) return 4;
-    if (btcValue <= 100) return 5;
-    if (btcValue <= 1000) return 6;
-    if (btcValue <= 10000) return 7;
-    if (btcValue <= 100000) return 8;
-    if (btcValue <= 1000000) return 9;
+// Get square size based on transaction value
+function getSquareSize(value) {
+    if (value / 100000000 === 0) return 1; // Transactions with a value of 0
+    if (value / 100000000 <= 0.01) return 1;
+    if (value / 100000000 <= 0.1) return 2;
+    if (value / 100000000 <= 1) return 3;
+    if (value / 100000000 <= 10) return 4;
+    if (value / 100000000 <= 100) return 5;
+    if (value / 100000000 <= 1000) return 6;
+    if (value / 100000000 <= 10000) return 7;
+    if (value / 100000000 <= 100000) return 8;
+    if (value / 100000000 <= 1000000) return 9;
     return 9; // For values above 1000000 BTC
-};
+}
 
-export class MondrianLayout {
+class MondrianLayout {
     constructor(txList = []) {
         this.width = 0;
         this.height = 0;
@@ -253,13 +254,12 @@ export class MondrianLayout {
             this.height = squareSlot.position.y + squareSlot.size;
         }
 
-        this.slots.push(squareSlot)
+        this.slots.push(squareSlot);
 
         return squareSlot;
     }
 
-    fillEmptySpaces(bestSize = true) { // set false to fill with only 1x1 squares
-
+    fillEmptySpaces(bestSize = true) {
         let filledSlots = [];
         let occupied = Array.from({length: this.height}, () => Array(this.width).fill(false));
 
@@ -271,8 +271,7 @@ export class MondrianLayout {
             }
         }
 
-        if (bestSize) { // Fill empty spaces with the largest possible squares
-
+        if (bestSize) {
             const canPlaceSquare = (x, y, size) => {
                 if (x + size > this.width || y + size > this.height) return false;
                 for (let i = 0; i < size; i++) {
@@ -281,7 +280,7 @@ export class MondrianLayout {
                     }
                 }
                 return true;
-            }
+            };
 
             for (let size = Math.min(this.width, this.height); size > 1; size--) {
                 for (let y = 0; y <= this.height - size; y++) {
@@ -316,18 +315,18 @@ export class MondrianLayout {
 // Helper functions to work with pattern data
 
 // Convert pattern string to array (e.g., "55443" to [5,5,4,4,3])
-export const getPatternArray = (patternString) => {
+function getPatternArray(patternString) {
     if (!patternString || typeof patternString !== 'string') return [];
     return patternString.split('').map(Number);
 }
 
 // Get Mondrian layout from pattern array
-export const getMondrian = (patternArray) => {
+function getMondrian(patternArray) {
     return new MondrianLayout(patternArray);
 }
 
 // Get Mondrian layout from bitmap data
-export const getMondrianFromBitmap = (bitmap) => {
+function getMondrianFromBitmap(bitmap) {
     if (bitmap.pattern && typeof bitmap.pattern === 'string') {
         return getMondrian(getPatternArray(bitmap.pattern));
     } else if (bitmap.squareSizes && Array.isArray(bitmap.squareSizes)) {
@@ -337,14 +336,14 @@ export const getMondrianFromBitmap = (bitmap) => {
 }
 
 // Generate random color for a square based on its size and position
-export const getSquareColor = (size, position, saturation = 70, lightness = 50) => {
+function getSquareColor(size, position, saturation = 70, lightness = 50) {
     // Use position and size to generate deterministic but varied colors
     const hue = ((position.x * 73 + position.y * 97 + size * 139) % 360);
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
 // Render Mondrian layout to canvas
-export const renderMondrianToCanvas = (mondrian, canvas, options = {}) => {
+function renderMondrianToCanvas(mondrian, canvas, options = {}) {
     const {
         cellSize = 20,
         strokeWidth = 2,
@@ -398,4 +397,84 @@ export const renderMondrianToCanvas = (mondrian, canvas, options = {}) => {
             ctx.strokeRect(x, y, size, size);
         });
     }
+}
+
+// API integration functions for database-driven patterns
+
+// Fetch bitmap pattern from API
+async function fetchBitmapPattern(bitmapNumber) {
+    try {
+        const response = await fetch(`/api/bitmap/${bitmapNumber}/pattern`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.pattern;
+    } catch (error) {
+        console.error('Error fetching bitmap pattern:', error);
+        return null;
+    }
+}
+
+// Fetch bitmap data with pattern from search API
+async function fetchBitmapsWithPatterns(searchParams = {}) {
+    try {
+        const queryString = new URLSearchParams(searchParams).toString();
+        const response = await fetch(`/api/bitmaps/search?${queryString}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error fetching bitmaps with patterns:', error);
+        return { bitmaps: [], total: 0 };
+    }
+}
+
+// Create Mondrian preview for bitmap card
+async function createMondrianPreview(bitmapNumber, canvasId, options = {}) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+        console.error(`Canvas with id ${canvasId} not found`);
+        return;
+    }
+
+    const pattern = await fetchBitmapPattern(bitmapNumber);
+    if (!pattern) {
+        // Show placeholder or error state
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#666';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('No pattern', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+
+    const patternArray = getPatternArray(pattern);
+    const mondrian = getMondrian(patternArray);
+    
+    const defaultOptions = {
+        cellSize: 8,
+        strokeWidth: 1,
+        showEmptySpaces: false
+    };
+    
+    renderMondrianToCanvas(mondrian, canvas, { ...defaultOptions, ...options });
+}
+
+// Make functions globally available (for browser usage)
+if (typeof window !== 'undefined') {
+    window.MondrianLayout = MondrianLayout;
+    window.getSquareSize = getSquareSize;
+    window.getPatternArray = getPatternArray;
+    window.getMondrian = getMondrian;
+    window.getMondrianFromBitmap = getMondrianFromBitmap;
+    window.getSquareColor = getSquareColor;
+    window.renderMondrianToCanvas = renderMondrianToCanvas;
+    window.fetchBitmapPattern = fetchBitmapPattern;
+    window.fetchBitmapsWithPatterns = fetchBitmapsWithPatterns;
+    window.createMondrianPreview = createMondrianPreview;
 }

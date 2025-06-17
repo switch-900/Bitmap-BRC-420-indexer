@@ -9,13 +9,13 @@ const routes = require('./routes');
 const app = express();
 const PORT = config.WEB_PORT || 8080;
 
-// Database initialization function with robust error handling
+// Database initialization function with robust error handling and local node optimizations
 function initializeDatabase() {
     return new Promise((resolve, reject) => {
         let DB_PATH = config.DB_PATH || './db/brc420.db';
         let dbDir = path.dirname(DB_PATH);
 
-        console.log('Starting database initialization...');
+        console.log('Starting database initialization (optimized for local node)...');
         console.log('Target database path:', DB_PATH);
         console.log('Target database directory:', dbDir);
 
@@ -35,15 +35,24 @@ function initializeDatabase() {
                     const testFile = path.join(testDbDir, 'test-write.tmp');
                     fs.writeFileSync(testFile, 'test');
                     fs.unlinkSync(testFile);
-                    console.log('Database directory is writable:', testDbDir);
-
-                    // Try to open database
+                    console.log('Database directory is writable:', testDbDir);                    // Try to open database with optimizations for local node
                     const db = new sqlite3.Database(dbPath, (err) => {
                         if (err) {
                             console.error('Error opening database at', dbPath, ':', err.message);
                             rejectDB(err);
                         } else {
                             console.log('Successfully opened database at:', dbPath);
+                            
+                            // Optimize database for local node performance
+                            db.serialize(() => {
+                                db.run("PRAGMA journal_mode = WAL");
+                                db.run("PRAGMA synchronous = NORMAL");
+                                db.run("PRAGMA cache_size = -128000"); // 128MB cache for local node
+                                db.run("PRAGMA temp_store = MEMORY");
+                                db.run("PRAGMA mmap_size = 268435456"); // 256MB memory map
+                                console.log('Database optimizations applied for local node');
+                            });
+                            
                             resolveDB(db);
                         }
                     });

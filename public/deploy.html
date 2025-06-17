@@ -4,134 +4,311 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deploy Details</title>
+    
+    <!-- High-Scale Optimization Scripts -->
+    <script src="js/svg-mondrian.js"></script>
+    <script src="js/progressive-loading.js"></script>
+    
     <style>
-      body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 20px;
-    background-color: black;
-    color: white;
-    max-width: 1200px;
-    margin: 0 auto;
-    overflow-x: hidden; /* Prevent horizontal scrollbars */
-}
-.container {
-    padding: 20px;
-    background-color: #1a1a1a;
-    border-radius: 8px;
-}
-.content-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 20px;
-}
-.deploy-details {
-    flex: 1;
-    background-color: #1a1a1a;
-    padding: 20px;
-    border-radius: 8px;
-}
-.details-table {
-    width: 100%;
-    border-collapse: collapse;
-    background-color: #2a2a2a;
-    border-radius: 8px;
-    overflow: hidden;
-}
-.details-table th, .details-table td {
-    padding: 12px;
-    border: 1px solid #2e82b9;
-}
-.details-table th {
-    background-color: #2e82b9;
-    color: #ffffff;
-    text-align: left;
-}
-.details-table td {
-    background-color: #333333;
-}
-.iframe-container {
-    flex: 1;
-    position: relative;
-    border: 1px solid #2e82b9;
-    border-radius: 8px;
-    overflow: hidden;
-}
-.iframe-container iframe {
-    width: 100%;
-    height: 100%;
-}
-.mints-container {
-    margin-top: 20px;
-    background-color: #333;
-    padding: 20px;
-    border-radius: 8px;
-    max-width: 98%;
-    overflow-y: auto;
-    max-height: 30vh;
-    margin: 0 auto;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
+        }
 
-/* Custom Scrollbar */
-.mints-container::-webkit-scrollbar {
-    width: 8px;
-}
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255, 107, 53, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(247, 147, 30, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+            animation: fadeIn 0.6s ease-out;
+        }        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-.mints-container::-webkit-scrollbar-track {
-    background: #1a1a1a; /* Dark background for scrollbar track */
-    border-radius: 10px;
-}
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
 
-.mints-container::-webkit-scrollbar-thumb {
-    background-color: #2e82b9; /* Scrollbar color matching the theme */
-    border-radius: 10px;
-    border: 2px solid #1a1a1a; /* Padding around scrollbar thumb */
-}
+        .header h1 {
+            font-size: 3.5rem;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffd700 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+            font-weight: 700;
+            text-shadow: 0 4px 20px rgba(255, 107, 53, 0.3);
+            animation: glow 3s ease-in-out infinite alternate;
+        }
 
-.mints-container::-webkit-scrollbar-thumb:hover {
-    background-color: #1e6b96; /* Slightly lighter color on hover */
-}
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px rgba(255, 107, 53, 0.5)); }
+            to { filter: drop-shadow(0 0 40px rgba(255, 107, 53, 0.8)); }
+        }
 
-.mint {
-    border: 1px solid #2e82b9;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    background-color: #1a1a1a;
-}
-.mint strong {
-    color: #2e82b9;
-}
-.navigation {
-    display: flex;
-    justify-content: space-between;
-    background-color: #1a1a1a;
-    margin-bottom: 2px;
-    border-radius: 10px;
-}
-.navigation a {
-    color: #2e82b9;
-    text-decoration: none;
-    font-size: 18px;
-    padding: 5px;
-}
+        .subtitle {
+            font-size: 1.2rem;
+            color: #b0b0b0;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 25px;
+            padding: 15px 30px;
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            display: inline-block;
+        }
 
-    </style>
+        .navigation {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .navigation a {
+            color: #ff6b35;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .navigation a:hover {
+            background: rgba(255, 107, 53, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
+        }
+
+        .navigation h1 {
+            color: #ff6b35;
+            font-size: 24px;
+            margin: 0;
+        }
+
+        .content-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .deploy-details {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 16px;
+            padding: 25px;
+        }
+
+        .details-table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .details-table th,
+        .details-table td {
+            padding: 15px 20px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 107, 53, 0.2);
+        }
+
+        .details-table th {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .details-table td {
+            background: rgba(255, 255, 255, 0.05);
+            color: #ffffff;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .details-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .iframe-container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 16px;
+            overflow: hidden;
+            height: fit-content;
+        }
+
+        .iframe-container iframe {
+            width: 100%;
+            height: 400px;
+            border: none;
+            background: white;
+        }
+
+        .mints-container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 16px;
+            padding: 25px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .mints-container h3 {
+            color: #ff6b35;
+            margin-bottom: 20px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        .mint {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .mint::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(247, 147, 30, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1;
+        }
+
+        .mint:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 53, 0.2);
+            border-color: #ff6b35;
+        }
+
+        .mint:hover::before {
+            opacity: 1;
+        }
+
+        .mint p {
+            margin: 8px 0;
+            position: relative;
+            z-index: 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .mint strong {
+            color: #ff6b35;
+            font-weight: 600;
+            min-width: fit-content;
+            margin-right: 15px;
+        }
+
+        .mint span {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        /* Custom Scrollbar */
+        .mints-container::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        .mints-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .mints-container::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            border-radius: 6px;
+        }
+
+        .mints-container::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #f7931e 0%, #ff6b35 100%);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .navigation {
+                flex-direction: column;
+                gap: 10px;
+                text-align: center;
+            }
+
+            .content-row {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .iframe-container iframe {
+                height: 300px;
+            }
+        }    </style>
 </head>
 <body>
-            <div class="navigation"> 
-
-
-            <a href="index.html">Deploys and Mints</a>
-            
-            <h1 id="deployName">Deploy Details</h1>
-            <a href="bitmaps.html">Bitmaps</a>
+    <div class="container">
+        <div class="header">
+            <h1>BRC-420 Indexer</h1>
+            <div class="subtitle">Deploy Details</div>
         </div>
 
-    
-        <div class="container">
+        <div class="navigation">
+            <a href="index.html">Deploys and Mints</a>
+            <a href="bitmaps.html">Bitmaps</a>
+        </div>
         <div class="content-row">
             <div id="deployInfo" class="deploy-details">
                 <table class="details-table">
@@ -146,10 +323,13 @@
                     <tr>
                         <th>Price</th>
                         <td id="price"></td>
-                    </tr>
-                    <tr>
+                    </tr>                    <tr>
                         <th>Deployer Address</th>
                         <td id="deployerAddress"></td>
+                    </tr>
+                    <tr>
+                        <th>Current Wallet</th>
+                        <td id="currentWallet" style="color: #4ade80;"></td>
                     </tr>
                     <tr>
                         <th>Block Height</th>
@@ -159,6 +339,14 @@
                         <th>Total Mints</th>
                         <td id="totalMints"></td>
                     </tr>
+                    <tr>
+                        <th>Transfer History</th>
+                        <td>
+                            <div id="deployTransferHistory" style="max-height: 120px; overflow-y: auto; font-size: 12px;">
+                                Loading...
+                            </div>
+                        </td>
+                    </tr>
                 </table>
             </div>
             <div id="deployContent" class="iframe-container">
@@ -166,8 +354,13 @@
             </div>
         </div>
         
-        <div class="mints-container" id="mintsContainer"></div>
-    </div>    <script>        const API_URL = `${window.location.protocol}//${window.location.host}/api`;
+        <div class="mints-container" id="mintsContainer">
+            <h3>🔄 Recent Mints</h3>
+        </div>
+    </div>    
+    <script>        
+    
+    const API_URL = `${window.location.protocol}//${window.location.host}/api`;
         
         // Try to detect local Ordinals service, fallback to ordinals.com
         let CONTENT_URL = 'https://ordinals.com';  // Default fallback        // Function to detect local Ordinals service
@@ -230,47 +423,231 @@
             // Try to detect local Ordinals service first
             await detectLocalOrdinals();
             loadDeployDetails(deployId);
-        });
-
-        function loadDeployDetails(deployId) {
+        });        function loadDeployDetails(deployId) {
             fetch(`${API_URL}/deploy/${deployId}/summary`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
                 .then(deploy => {
-                    document.getElementById('deployName').textContent = deploy.name;
-                    document.getElementById('sourceId').textContent = deploy.source_id;
+                    // Update the subtitle with the deploy name
+                    const subtitle = document.querySelector('.subtitle');
+                    if (subtitle) {
+                        subtitle.textContent = `Deploy Details - ${deploy.name}`;
+                    }
+                      document.getElementById('sourceId').textContent = deploy.source_id;
                     document.getElementById('maxMints').textContent = deploy.max;
                     document.getElementById('price').textContent = deploy.price;
                     document.getElementById('deployerAddress').textContent = deploy.deployer_address;
+                    document.getElementById('currentWallet').textContent = deploy.wallet || deploy.deployer_address;
                     document.getElementById('blockHeight').textContent = deploy.block_height;
                     document.getElementById('totalMints').textContent = deploy.total_mints;
 
-                    // Load the content in the iframe
-                    document.getElementById('deployIframe').src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                    // Load transfer history for the deploy inscription
+                    loadAddressHistory(deploy.source_id, 'deployTransferHistory');
+
+                    // Load the content in the iframe with progressive loading
+                    const iframe = document.getElementById('deployIframe');
+                    iframe.style.opacity = '0';
+                    iframe.src = `${CONTENT_URL}/preview/${deploy.source_id}`;
+                    iframe.onload = () => {
+                        iframe.style.transition = 'opacity 0.3s ease';
+                        iframe.style.opacity = '1';
+                    };
+                    
                     loadMints(deployId);
                 })
-                .catch(error => console.error('Error loading deploy details:', error));
+                .catch(error => {
+                    console.error('Error loading deploy details:', error);
+                    const deployInfo = document.getElementById('deployInfo');
+                    deployInfo.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #dc3545;">
+                            <h3>❌ Error Loading Deploy</h3>
+                            <p>Failed to load deploy details from the database.</p>
+                            <p style="font-size: 14px; margin-top: 10px;">
+                                Error: ${error.message}
+                            </p>
+                            <button onclick="loadDeployDetails('${deployId}')" style="
+                                margin-top: 15px;
+                                padding: 8px 16px;
+                                background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+                                color: white;
+                                border: none;
+                                border-radius: 6px;
+                                cursor: pointer;
+                            ">🔄 Retry</button>
+                        </div>
+                    `;
+                });
+        }
+
+        // Function to load address history for an inscription
+        function loadAddressHistory(inscriptionId, containerId) {
+            fetch(`${API_URL}/inscription/${inscriptionId}/address-history`)
+                .then(response => response.json())
+                .then(history => {
+                    const container = document.getElementById(containerId);
+                    if (history.length === 0) {
+                        container.innerHTML = '<span style="color: #888;">No transfers recorded</span>';
+                        return;
+                    }
+                    
+                    const historyHtml = history.map(transfer => `
+                        <div style="padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <div style="color: #ff6b35;">Block ${transfer.block_height}</div>
+                            <div style="color: #888; font-size: 10px;">
+                                ${transfer.old_address ? `From: ${transfer.old_address.substring(0, 12)}...` : 'Initial'}
+                                → To: ${transfer.new_address.substring(0, 12)}...
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    container.innerHTML = historyHtml;
+                })
+                .catch(error => {
+                    console.error('Error loading address history:', error);
+                    document.getElementById(containerId).innerHTML = '<span style="color: #dc3545;">Error loading history</span>';
+                });
         }
 
         function loadMints(deployId) {
             fetch(`${API_URL}/deploy/${deployId}/mints`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
                 .then(mints => {
                     const mintsContainer = document.getElementById('mintsContainer');
-                    mintsContainer.innerHTML = ''; // Clear previous mints
+                    mintsContainer.innerHTML = '<h3>🔄 Recent Mints</h3>'; // Clear previous mints but keep title
+                    
+                    if (mints.length === 0) {
+                        mintsContainer.innerHTML += `
+                            <div style="text-align: center; padding: 30px; color: #666;">
+                                <p>📭 No mints found for this deploy yet.</p>
+                                <p style="font-size: 14px; margin-top: 10px;">
+                                    Mints will appear here as they are processed by the indexer.
+                                </p>
+                            </div>
+                        `;
+                        return;
+                    }
+
                     mints.forEach(mint => {
                         const mintElement = document.createElement('div');
                         mintElement.className = 'mint';
-                        mintElement.innerHTML = `
-                            <p><strong>Mint ID:</strong> ${mint.id}</p>
-                            <p><strong>Mint Address:</strong> ${mint.mint_address}</p>
-                            <p><strong>Transaction ID:</strong> ${mint.transaction_id}</p>
-                            <p><strong>Block Height:</strong> ${mint.block_height}</p>
-                            <p><strong>Timestamp:</strong> ${new Date(mint.timestamp).toLocaleString()}</p>
+                        mintElement.style.cssText = `
+                            background: rgba(255, 255, 255, 0.05);
+                            backdrop-filter: blur(10px);
+                            border: 1px solid rgba(255, 107, 53, 0.2);
+                            border-radius: 12px;
+                            padding: 15px;
+                            margin-bottom: 15px;
+                            transition: all 0.3s ease;
                         `;
+                          mintElement.innerHTML = `
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 14px;">
+                                <div><strong>🆔 ID:</strong> ${mint.source_id}</div>
+                                <div><strong>🏠 Original Minter:</strong> ${mint.mint_address}</div>
+                                <div><strong>💼 Current Wallet:</strong> <span style="color: #4ade80;">${mint.wallet || mint.mint_address}</span></div>
+                                <div><strong>📦 Block:</strong> ${mint.block_height}</div>
+                                <div><strong>⏰ Time:</strong> ${new Date(mint.timestamp * 1000).toLocaleString()}</div>
+                                <div style="grid-column: 1 / -1;">
+                                    <button onclick="loadMintTransferHistory('${mint.id}', this)" style="
+                                        background: rgba(255, 107, 53, 0.2);
+                                        border: 1px solid rgba(255, 107, 53, 0.4);
+                                        color: #ff6b35;
+                                        padding: 4px 8px;
+                                        border-radius: 4px;
+                                        font-size: 12px;
+                                        cursor: pointer;
+                                    ">📈 View Transfer History</button>
+                                    <div class="transfer-history" style="display: none; margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 11px;"></div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Add hover effect
+                        mintElement.addEventListener('mouseenter', () => {
+                            mintElement.style.transform = 'translateY(-2px)';
+                            mintElement.style.boxShadow = '0 8px 25px rgba(255, 107, 53, 0.3)';
+                        });
+                        
+                        mintElement.addEventListener('mouseleave', () => {
+                            mintElement.style.transform = '';
+                            mintElement.style.boxShadow = '';
+                        });
+                        
                         mintsContainer.appendChild(mintElement);
                     });
                 })
-                .catch(error => console.error('Error loading mints:', error));
+                .catch(error => {
+                    console.error('Error loading mints:', error);
+                    const mintsContainer = document.getElementById('mintsContainer');
+                    mintsContainer.innerHTML = `
+                        <h3>🔄 Recent Mints</h3>
+                        <div style="text-align: center; padding: 30px; color: #dc3545;">
+                            <h4>❌ Error Loading Mints</h4>
+                            <p>Failed to load mint data from the database.</p>
+                            <p style="font-size: 14px; margin-top: 10px;">
+                                Error: ${error.message}
+                            </p>
+                            <button onclick="loadMints('${deployId}')" style="
+                                margin-top: 15px;
+                                padding: 8px 16px;
+                                background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+                                color: white;
+                                border: none;
+                                border-radius: 6px;
+                                cursor: pointer;
+                            ">🔄 Retry</button>
+                        </div>
+                    `;                });
+        }
+
+        // Function to load transfer history for a specific mint
+        function loadMintTransferHistory(mintId, button) {
+            const transferDiv = button.nextElementSibling;
+            
+            if (transferDiv.style.display === 'none') {
+                transferDiv.style.display = 'block';
+                button.textContent = '📉 Hide Transfer History';
+                transferDiv.innerHTML = 'Loading...';
+                
+                fetch(`${API_URL}/inscription/${mintId}/address-history`)
+                    .then(response => response.json())
+                    .then(history => {
+                        if (history.length === 0) {
+                            transferDiv.innerHTML = '<span style="color: #888;">No transfers recorded - still with original minter</span>';
+                            return;
+                        }
+                        
+                        const historyHtml = history.map((transfer, index) => `
+                            <div style="padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                <div style="color: #ff6b35; font-weight: bold;">Transfer ${index + 1} - Block ${transfer.block_height}</div>
+                                <div style="color: #888; margin: 2px 0;">
+                                    ${transfer.old_address ? `From: ${transfer.old_address.substring(0, 16)}...` : 'Initial Mint'}
+                                </div>
+                                <div style="color: #4ade80; margin: 2px 0;">
+                                    To: ${transfer.new_address.substring(0, 16)}...
+                                </div>
+                                ${transfer.transaction_id ? `<div style="color: #666; font-size: 10px;">Tx: ${transfer.transaction_id.substring(0, 16)}...</div>` : ''}
+                            </div>
+                        `).join('');
+                        
+                        transferDiv.innerHTML = historyHtml;
+                    })
+                    .catch(error => {
+                        console.error('Error loading transfer history:', error);
+                        transferDiv.innerHTML = '<span style="color: #dc3545;">Error loading transfer history</span>';
+                    });
+            } else {
+                transferDiv.style.display = 'none';
+                button.textContent = '📈 View Transfer History';
+            }
         }
     </script>
 </body>

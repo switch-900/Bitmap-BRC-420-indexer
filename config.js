@@ -10,17 +10,20 @@ module.exports = {    // Primary API URLs - prefer local Umbrel services if avai
     BITCOIN_RPC_PORT: parseInt(process.env.BITCOIN_RPC_PORT) || 8332,
     BITCOIN_RPC_USER: process.env.BITCOIN_RPC_USER || null,
     BITCOIN_RPC_PASS: process.env.BITCOIN_RPC_PASS || null,
-    
-    // Indexing configuration
+      // Indexing configuration - optimized for local node
     START_BLOCK: parseInt(process.env.START_BLOCK) || 792435, // first brc-420 in block 807604 first bitmap in block 792435
-    RETRY_BLOCK_DELAY: parseInt(process.env.RETRY_BLOCK_DELAY) || 3,
+    RETRY_BLOCK_DELAY: parseInt(process.env.RETRY_BLOCK_DELAY) || 1, // Reduced delay for local node
     DB_PATH: process.env.DB_PATH || './db/brc420.db',
     PORT: parseInt(process.env.PORT) || 5000,
     WEB_PORT: parseInt(process.env.WEB_PORT) || 8080,
-    MAX_RETRIES: parseInt(process.env.MAX_RETRIES) || 3,
-    RETRY_DELAY: parseInt(process.env.RETRY_DELAY) || 5000,
-    CONCURRENCY_LIMIT: parseInt(process.env.CONCURRENCY_LIMIT) || 5,
+    MAX_RETRIES: parseInt(process.env.MAX_RETRIES) || 5, // Increased retries
+    RETRY_DELAY: parseInt(process.env.RETRY_DELAY) || 1000, // Reduced delay for local node  
+    CONCURRENCY_LIMIT: parseInt(process.env.CONCURRENCY_LIMIT) || 10, // Increased concurrency for local node
     RUN_INDEXER: process.env.RUN_INDEXER === 'true',
+    
+    // API timeout settings for local node
+    API_TIMEOUT: parseInt(process.env.API_TIMEOUT) || 30000, // 30 seconds for local node
+    STATUS_TIMEOUT: parseInt(process.env.STATUS_TIMEOUT) || 10000, // 10 seconds for status checks
     
     // Determine if we're running in Umbrel environment
     isUmbrelEnvironment() {
