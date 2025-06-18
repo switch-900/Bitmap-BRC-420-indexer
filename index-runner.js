@@ -138,10 +138,10 @@ async function getInscriptionContentCached(inscriptionId) {
     try {
         const response = await axios.get(`${API_URL}/content/${inscriptionId}`, {
             headers: { 'Accept': 'text/plain' },
-            responseType: 'text'
-        });        const content = response.data || '';
+            responseType: 'text'        });        const content = response.data || '';
         apiCache.set(cacheKey, content);
-        return content;} catch (error) {
+        return content;
+    } catch (error) {
         logger.error(`Error getting inscription content for ${inscriptionId}:`, { message: error.message });
         return '';
     }
@@ -1005,10 +1005,10 @@ async function processInscription(inscriptionId, blockHeight) {
             if (isOwnershipValid && isUniqueDeployment) {
                 await saveDeploy(deployData);
                 processingLogger.info(`BRC-420 deploy inscription saved: ${inscriptionId}`);
-                return { type: 'deploy' };
-            } else {
+                return { type: 'deploy' };            } else {
                 processingLogger.info(`BRC-420 deploy validation failed for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
-            }        } else if (content.trim().startsWith('/content/')) {
+            }
+        } else if (content.trim().startsWith('/content/')) {
             // BRC-420 mint format: /content/<INSCRIPTION_ID>
             const trimmedContent = content.trim();
             processingLogger.info(`Potential BRC-420 mint detected: ${inscriptionId} -> ${trimmedContent}`);
@@ -1053,11 +1053,11 @@ async function processInscription(inscriptionId, blockHeight) {
                     }
                 } else {
                     processingLogger.debug(`No deploy found for source inscription ${sourceInscriptionId}`);
-                }
-            } else {
+                }            } else {
                 // Log potential mints that don't match the exact pattern
                 processingLogger.debug(`Content starts with /content/ but doesn't match BRC-420 pattern: ${inscriptionId} -> ${trimmedContent}`);
-            }        } else if (content.includes('.bitmap')) {
+            }
+        } else if (content.includes('.bitmap')) {
             // Check for parcel format first (more specific than bitmap format)
             if (isValidParcelFormat(content)) {
                 const parcelInfo = parseParcelContent(content);

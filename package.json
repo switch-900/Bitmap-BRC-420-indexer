@@ -1,9 +1,9 @@
 {
   "name": "brc-420-indexer",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
+  "main": "index.js",  "scripts": {
     "start": "node server.js",
+    "start:prod": "node --max-old-space-size=8192 --optimize-for-size server.js",
     "indexer": "node index-runner.js",
     "indexer:dev": "node --max-old-space-size=4096 index-runner.js",
     "indexer:prod": "node --max-old-space-size=8192 --optimize-for-size index-runner.js",
