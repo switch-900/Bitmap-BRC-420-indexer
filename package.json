@@ -16,7 +16,15 @@
     "docker:build": "docker build -t brc-420-indexer .",
     "docker:run": "docker run -p 3000:3000 brc-420-indexer"
   },
-  "keywords": ["bitcoin", "ordinals", "brc-420", "indexer", "inscriptions", "bitmaps", "parcels"],
+  "keywords": [
+    "bitcoin",
+    "ordinals",
+    "brc-420",
+    "indexer",
+    "inscriptions",
+    "bitmaps",
+    "parcels"
+  ],
   "author": "BRC-420 Indexer Team",
   "license": "ISC",
   "description": "High-performance Bitcoin BRC-420 inscription indexer with support for deploys, mints, bitmaps, and parcels",
@@ -33,7 +41,7 @@
     "express-rate-limit": "^7.4.0",
     "joi": "^17.13.3",
     "node-cache": "^5.1.2",
-    "p-limit": "^4.0.0",
+    "p-limit": "^3.1.0",
     "sqlite3": "^5.1.7",
     "winston": "^3.14.2"
   },
