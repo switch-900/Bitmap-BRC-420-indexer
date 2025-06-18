@@ -44,9 +44,11 @@ const concurrencyLimit = pLimit(config.CONCURRENCY_LIMIT || 5);
 
 // PERFORMANCE OPTIMIZATION: API response cache
 class APICache {
-    constructor(maxAge = 60000) { // 1 minute cache
+    constructor(maxAge = 60000, maxSize = 10000) { // 1 minute cache, max 10k entries
         this.cache = new Map();
         this.maxAge = maxAge;
+        this.maxSize = maxSize;
+        this.cleanupInterval = setInterval(() => this.cleanup(), maxAge);
     }
     
     get(key) {
@@ -62,10 +64,48 @@ class APICache {
     }
     
     set(key, data) {
+        // Implement LRU-style eviction when cache is full
+        if (this.cache.size >= this.maxSize) {
+            const firstKey = this.cache.keys().next().value;
+            this.cache.delete(firstKey);
+        }
+        
         this.cache.set(key, {
             data,
             timestamp: Date.now()
         });
+    }
+    
+    cleanup() {
+        const now = Date.now();
+        const keysToDelete = [];
+        
+        for (const [key, item] of this.cache.entries()) {
+            if (now - item.timestamp > this.maxAge) {
+                keysToDelete.push(key);
+            }
+        }
+        
+        keysToDelete.forEach(key => this.cache.delete(key));
+        
+        if (keysToDelete.length > 0) {
+            logger.debug(`API cache cleanup: removed ${keysToDelete.length} expired entries`);
+        }
+    }
+    
+    destroy() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+        }
+        this.cache.clear();
+    }
+    
+    getStats() {
+        return {
+            size: this.cache.size,
+            maxSize: this.maxSize,
+            maxAge: this.maxAge
+        };
     }
 }
 
@@ -99,10 +139,9 @@ async function getInscriptionContentCached(inscriptionId) {
         const response = await axios.get(`${API_URL}/content/${inscriptionId}`, {
             headers: { 'Accept': 'text/plain' },
             responseType: 'text'
-        });
-        const content = response.data || '';
+        });        const content = response.data || '';
         apiCache.set(cacheKey, content);
-        return content;    } catch (error) {
+        return content;} catch (error) {
         logger.error(`Error getting inscription content for ${inscriptionId}:`, { message: error.message });
         return '';
     }
@@ -516,13 +555,11 @@ async function getMintAddress(inscriptionId) {
     }
 }
 
-// Function to get deployer address
+// Function to get deployer address (using cached API call)
 async function getDeployerAddress(inscriptionId) {
     try {
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-        return response.data.address || null;
+        const details = await getInscriptionDetailsCached(inscriptionId);
+        return details ? details.address : null;
     } catch (error) {
         logger.error(`Error getting deployer address for ${inscriptionId}:`, { message: error.message });
         return null;
@@ -561,20 +598,20 @@ async function validateMintRoyaltyPayment(deployInscription, mintAddress, mintTr
 }
 
 // Function to validate mint content type matches source inscription
-async function validateMintContentType(mintInscriptionId, sourceInscriptionId) {
-    try {
-        // Get both inscriptions' metadata
-        const [mintResponse, sourceResponse] = await Promise.all([
-            axios.get(`${API_URL}/inscription/${mintInscriptionId}`, {
-                headers: { 'Accept': 'application/json' }
-            }),
-            axios.get(`${API_URL}/inscription/${sourceInscriptionId}`, {
-                headers: { 'Accept': 'application/json' }
-            })
+async function validateMintContentType(mintInscriptionId, sourceInscriptionId) {    try {
+        // Get both inscriptions' metadata using cached API calls
+        const [mintDetails, sourceDetails] = await Promise.all([
+            getInscriptionDetailsCached(mintInscriptionId),
+            getInscriptionDetailsCached(sourceInscriptionId)
         ]);
 
-        const mintContentType = mintResponse.data.content_type;
-        const sourceContentType = sourceResponse.data.content_type;
+        if (!mintDetails || !sourceDetails) {
+            logger.error(`Could not get inscription details for content type validation: mint=${!!mintDetails}, source=${!!sourceDetails}`);
+            return false;
+        }
+
+        const mintContentType = mintDetails.content_type;
+        const sourceContentType = sourceDetails.content_type;
 
         const isValid = mintContentType === sourceContentType;
         logger.info(`Content type validation for mint ${mintInscriptionId}: ${isValid ? 'VALID' : 'INVALID'} (mint: ${mintContentType}, source: ${sourceContentType})`);
@@ -1155,6 +1192,12 @@ async function processBlock(blockHeight) {
             );
             
             processingLogger.info(`Block ${blockHeight} processed. Transactions: ${transactionCount || 'Unknown'}, Inscriptions: ${inscriptions.length}, Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}, Parcels: ${parcelCount}`);
+            
+            // Log cache performance every 10 blocks for monitoring
+            if (blockHeight % 10 === 0) {
+                const cacheStats = apiCache.getStats();
+                processingLogger.info(`Performance stats at block ${blockHeight}: Cache ${cacheStats.size}/${cacheStats.maxSize} entries, Concurrency limit: ${config.CONCURRENCY_LIMIT || 5}`);
+            }
         } else {
             // Even if no inscriptions, save block stats with transaction count
             const transactionCount = await getBlockTransactionCount(blockHeight);
@@ -1459,6 +1502,38 @@ module.exports = {
         // Test local API connectivity before starting
         await testLocalAPIConnectivity();
         await testLocalMempoolAPIConnectivity();
+        
+        // Set up cleanup on process exit
+        process.on('SIGINT', () => {
+            logger.info('Received SIGINT, cleaning up...');
+            if (apiCache) {
+                apiCache.destroy();
+            }
+            if (db) {
+                db.close((err) => {
+                    if (err) {
+                        logger.error('Error closing database:', err);
+                    } else {
+                        logger.info('Database closed.');
+                    }
+                    process.exit(0);
+                });
+            } else {
+                process.exit(0);
+            }
+        });
+        
+        process.on('SIGTERM', () => {
+            logger.info('Received SIGTERM, cleaning up...');
+            if (apiCache) {
+                apiCache.destroy();
+            }
+            if (db) {
+                db.close(() => process.exit(0));
+            } else {
+                process.exit(0);
+            }
+        });
         
         await startProcessing();
     }

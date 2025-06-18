@@ -4,15 +4,25 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "indexer": "node index.js",
+    "indexer": "node index-runner.js",
+    "indexer:dev": "node --max-old-space-size=4096 index-runner.js",
+    "indexer:prod": "node --max-old-space-size=8192 --optimize-for-size index-runner.js",
     "setup-db": "node db/setup.js",
     "dev": "nodemon server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev:indexer": "nodemon index-runner.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "echo \"Linting not configured\" && exit 0",
+    "docker:build": "docker build -t brc-420-indexer .",
+    "docker:run": "docker run -p 3000:3000 brc-420-indexer"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["bitcoin", "ordinals", "brc-420", "indexer", "inscriptions", "bitmaps", "parcels"],
+  "author": "BRC-420 Indexer Team",
   "license": "ISC",
-  "description": "",  "dependencies": {
+  "description": "High-performance Bitcoin BRC-420 inscription indexer with support for deploys, mints, bitmaps, and parcels",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },"dependencies": {
     "axios": "^1.7.4",
     "bull": "^4.16.0",
     "cors": "^2.8.5",
