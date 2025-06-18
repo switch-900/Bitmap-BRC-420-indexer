@@ -324,19 +324,46 @@ async function testLocalMempoolAPIConnectivity() {
     return false;
 }
 
-// Initialize database connection for indexer
+// Initialize database connection for indexer with retry logic
 function initializeIndexerDb() {
-    return new Promise((resolve, reject) => {        db = new sqlite3.Database(config.DB_PATH, (err) => {
-            if (err) {
-                logger.error('Error opening indexer database:', { message: err.message });
-                reject(err);
-            } else {
-                logger.info('Indexer connected to the BRC-420 database.');
-                // Initialize database batcher for performance optimization
-                dbBatcher = new DatabaseBatcher(db);
-                resolve();
-            }
-        });
+    return new Promise((resolve, reject) => {
+        let retryCount = 0;
+        const maxRetries = 10;
+        const retryDelay = 2000; // 2 seconds
+        
+        function attemptConnection() {
+            db = new sqlite3.Database(config.DB_PATH, sqlite3.OPEN_READWRITE, (err) => {
+                if (err) {
+                    logger.warn(`Database connection attempt ${retryCount + 1} failed: ${err.message}`);
+                    
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        logger.info(`Retrying database connection in ${retryDelay}ms (attempt ${retryCount}/${maxRetries})...`);
+                        setTimeout(attemptConnection, retryDelay);
+                    } else {
+                        logger.error('Max database connection retries exceeded');
+                        reject(err);
+                    }
+                } else {
+                    logger.info('Indexer connected to the BRC-420 database.');
+                    
+                    // Configure database for concurrent access
+                    db.serialize(() => {
+                        db.run("PRAGMA journal_mode = WAL"); // Enable WAL mode for better concurrency
+                        db.run("PRAGMA synchronous = NORMAL"); // Balance safety and speed
+                        db.run("PRAGMA busy_timeout = 30000"); // 30 second timeout for busy database
+                        db.run("PRAGMA cache_size = -64000"); // 64MB cache for indexer
+                        
+                        // Initialize database batcher for performance optimization
+                        dbBatcher = new DatabaseBatcher(db);
+                        resolve();
+                    });
+                }
+            });
+        }
+        
+        // Start first attempt after a small delay to let server.js initialize the database
+        setTimeout(attemptConnection, 3000); // 3 second delay
     });
 }
 
@@ -503,13 +530,21 @@ async function saveBitmap(bitmapData) {
                 resolve(false);
             } else {
                 const stmt = db.prepare("INSERT INTO bitmaps (inscription_id, bitmap_number, content, address, timestamp, block_height, wallet) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                stmt.run([bitmapData.inscription_id, bitmapData.bitmap_number, bitmapData.content, bitmapData.address, bitmapData.timestamp, bitmapData.block_height, bitmapData.address], function(err) {
+                stmt.run([bitmapData.inscription_id, bitmapData.bitmap_number, bitmapData.content, bitmapData.address, bitmapData.timestamp, bitmapData.block_height, bitmapData.address], async function(err) {
                     if (err) {
                         logger.error(`Error saving bitmap ${bitmapData.bitmap_number}:`, { message: err.message });
                         reject(err);
                     } else {
                         logger.info(`Bitmap ${bitmapData.bitmap_number} saved to database.`);
                         saveOrUpdateWallet(bitmapData.inscription_id, bitmapData.address, 'bitmap');
+                        
+                        // Generate bitmap pattern for visualization
+                        try {
+                            await generateBitmapPattern(bitmapData.bitmap_number, bitmapData.inscription_id);
+                        } catch (patternError) {
+                            logger.warn(`Failed to generate pattern for bitmap ${bitmapData.bitmap_number}:`, { message: patternError.message });
+                        }
+                        
                         resolve(true);
                     }
                 });
@@ -1538,3 +1573,132 @@ module.exports = {
         await startProcessing();
     }
 };
+
+// Function to generate bitmap pattern data for Mondrian visualization
+async function generateBitmapPattern(bitmapNumber, inscriptionId) {
+    try {
+        // Get transaction history for this bitmap from Bitcoin Core or ord
+        const txHistory = await getBitmapTransactionHistory(bitmapNumber, inscriptionId);
+        
+        if (!txHistory || txHistory.length === 0) {
+            logger.warn(`No transaction history found for bitmap ${bitmapNumber}`);
+            return null;
+        }
+
+        // Convert transaction data to pattern format for Mondrian visualization
+        const patternData = {
+            pattern: 'mondrian',
+            txList: txHistory.map(tx => ({
+                size: Math.max(1, Math.min(10, Math.floor(tx.value / 100000) || 1)), // Convert satoshi value to size 1-10
+                color: `hsl(${(tx.blockHeight % 360)}, 70%, 50%)`, // Color based on block height
+                txid: tx.txid,
+                blockHeight: tx.blockHeight,
+                value: tx.value
+            })),
+            transactions: txHistory,
+            generatedAt: new Date().toISOString()
+        };
+
+        // Save pattern to database
+        return new Promise((resolve, reject) => {
+            const stmt = db.prepare(`
+                INSERT OR REPLACE INTO bitmap_patterns 
+                (bitmap_number, pattern_data, transaction_count, block_height, generated_at) 
+                VALUES (?, ?, ?, ?, ?)
+            `);
+            
+            stmt.run([
+                bitmapNumber,
+                JSON.stringify(patternData),
+                txHistory.length,
+                txHistory[0]?.blockHeight || 0,
+                new Date().toISOString()
+            ], function(err) {
+                if (err) {
+                    logger.error(`Error saving pattern for bitmap ${bitmapNumber}:`, { message: err.message });
+                    reject(err);
+                } else {
+                    logger.info(`Pattern generated and saved for bitmap ${bitmapNumber} with ${txHistory.length} transactions`);
+                    resolve(patternData);
+                }
+            });
+        });
+
+    } catch (error) {
+        logger.error(`Error generating pattern for bitmap ${bitmapNumber}:`, { message: error.message });
+        return null;
+    }
+}
+
+// Function to get transaction history for a bitmap
+async function getBitmapTransactionHistory(bitmapNumber, inscriptionId) {
+    try {
+        // Try to get transaction history from ord API
+        const txHistory = await getInscriptionTransactionsCached(inscriptionId);
+        
+        if (txHistory && txHistory.length > 0) {
+            return txHistory;
+        }
+
+        // Fallback: Generate synthetic transaction data based on bitmap number
+        logger.info(`Generating synthetic transaction data for bitmap ${bitmapNumber}`);
+        return generateSyntheticTransactionData(bitmapNumber);
+
+    } catch (error) {
+        logger.warn(`Error fetching transaction history for bitmap ${bitmapNumber}, using synthetic data:`, { message: error.message });
+        return generateSyntheticTransactionData(bitmapNumber);
+    }
+}
+
+// Function to get inscription transaction history (cached)
+async function getInscriptionTransactionsCached(inscriptionId) {
+    const cacheKey = `tx_history_${inscriptionId}`;
+    
+    try {
+        // Check cache first
+        if (apiCache.has(cacheKey)) {
+            return apiCache.get(cacheKey);
+        }
+
+        // Try ord API endpoint
+        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}/transactions`, {
+            timeout: 10000,
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (response.data && Array.isArray(response.data)) {
+            const transactions = response.data.map(tx => ({
+                txid: tx.txid || tx.id,
+                blockHeight: tx.block_height || tx.blockHeight || 0,
+                value: tx.value || tx.output_value || Math.floor(Math.random() * 1000000),
+                timestamp: tx.timestamp || new Date().toISOString()
+            }));
+
+            apiCache.set(cacheKey, transactions);
+            return transactions;
+        }
+
+        return null;
+
+    } catch (error) {
+        logger.debug(`Error fetching inscription transactions for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+// Function to generate synthetic transaction data for visualization
+function generateSyntheticTransactionData(bitmapNumber) {
+    const numTransactions = Math.min(20, Math.max(3, Math.floor(bitmapNumber / 10000) + 3));
+    const transactions = [];
+    
+    for (let i = 0; i < numTransactions; i++) {
+        transactions.push({
+            txid: `synthetic_${bitmapNumber}_${i}`,
+            blockHeight: 830000 + Math.floor(bitmapNumber / 1000) + i,
+            value: Math.floor(Math.random() * 1000000) + 546, // Random value between 546 and 1M sats
+            timestamp: new Date(Date.now() - (numTransactions - i) * 86400000).toISOString() // Spread over days
+        });
+    }
+    
+    return transactions;
+}

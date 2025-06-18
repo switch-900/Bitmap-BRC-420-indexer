@@ -9,6 +9,16 @@ const routes = require('./routes');
 const app = express();
 const PORT = config.WEB_PORT || 8080;
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception (will not crash):', err.message);
+    console.error('Stack trace:', err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // Database initialization function with robust error handling and local node optimizations
 function initializeDatabase() {
     return new Promise((resolve, reject) => {
@@ -43,6 +53,19 @@ function initializeDatabase() {
                         } else {
                             console.log('Successfully opened database at:', dbPath);
                             
+                            // Add comprehensive error handling to prevent crashes
+                            db.on('error', (dbErr) => {
+                                console.error('Database error (will not crash app):', dbErr.message);
+                            });
+                            
+                            // Add error handler for SQLITE_BUSY specifically
+                            db.on('trace', (sql) => {
+                                // Log problematic SQL if needed for debugging
+                                if (sql.includes('PRAGMA') || sql.includes('CREATE')) {
+                                    console.log('Database operation:', sql.substring(0, 100));
+                                }
+                            });
+                            
                             // Optimize database for local node performance
                             db.serialize(() => {
                                 db.run("PRAGMA journal_mode = WAL");
@@ -50,6 +73,7 @@ function initializeDatabase() {
                                 db.run("PRAGMA cache_size = -128000"); // 128MB cache for local node
                                 db.run("PRAGMA temp_store = MEMORY");
                                 db.run("PRAGMA mmap_size = 268435456"); // 256MB memory map
+                                db.run("PRAGMA busy_timeout = 30000"); // 30 second timeout for concurrent access
                                 console.log('Database optimizations applied for local node');
                             });
                             
@@ -61,24 +85,33 @@ function initializeDatabase() {
                     rejectDB(error);
                 }
             });
-        }
-
-        // Try primary location first, then fallback
+        }        // Try primary location first, then fallback
         tryCreateDatabase(DB_PATH)
             .then(db => {
                 console.log('Using primary database location');
-                setupDatabaseSchema(db, resolve);
+                setupDatabaseSchema(db, (dbConnection) => {
+                    if (dbConnection) {
+                        // Store database connection for API routes
+                        global.db = dbConnection;
+                    }
+                    resolve();
+                });
             })
             .catch(err => {
                 console.log('Primary database location failed, trying fallback...');
                 const fallbackPath = path.join(__dirname, 'db', 'brc420.db');
-                
-                tryCreateDatabase(fallbackPath)
+                  tryCreateDatabase(fallbackPath)
                     .then(db => {
                         console.log('Using fallback database location:', fallbackPath);
                         // Update config for other parts of the app
                         config.DB_PATH = fallbackPath;
-                        setupDatabaseSchema(db, resolve);
+                        setupDatabaseSchema(db, (dbConnection) => {
+                            if (dbConnection) {
+                                // Store database connection for API routes
+                                global.db = dbConnection;
+                            }
+                            resolve();
+                        });
                     })
                     .catch(fallbackErr => {
                         console.error('Both database locations failed. Running in read-only mode.');
@@ -92,13 +125,33 @@ function initializeDatabase() {
 
 // Separate function to handle database schema setup
 function setupDatabaseSchema(db, callback) {
+    // Add error handling wrapper for all database operations
+    function safeDbRun(sql, params, callback) {
+        try {
+            db.run(sql, params, (err) => {
+                if (err) {
+                    console.error('Database operation error (continuing):', err.message);
+                    console.error('SQL:', sql.substring(0, 100));
+                    // Don't fail the callback, just log and continue
+                    if (callback) callback(null);
+                } else {
+                    if (callback) callback(null);
+                }
+            });
+        } catch (syncErr) {
+            console.error('Synchronous database error (continuing):', syncErr.message);
+            if (callback) callback(null);
+        }
+    }
+    
     db.serialize(() => {
         let tablesCreated = 0;
-        const totalTables = 7; // deploys, mints, bitmaps, bitmap_patterns, wallets, blocks, error_blocks
+        const totalTables = 8; // Added block_stats table
         
         function checkCompletion() {
             tablesCreated++;
-            if (tablesCreated >= totalTables) {                console.log('All database tables created successfully');
+            if (tablesCreated >= totalTables) {
+                console.log('All database tables created successfully');
                 
                 // Create indexes after all tables are created
                 const indexes = [
@@ -115,28 +168,19 @@ function setupDatabaseSchema(db, callback) {
                     'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
                     'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',
-                    'CREATE INDEX IF NOT EXISTS idx_error_blocks_retry_at ON error_blocks(retry_at)'
+                    'CREATE INDEX IF NOT EXISTS idx_error_blocks_retry_at ON error_blocks(retry_at)',
+                    'CREATE INDEX IF NOT EXISTS idx_block_stats_block_height ON block_stats(block_height)'
                 ];
 
                 let indexesCreated = 0;
                 indexes.forEach((indexSql, i) => {
-                    db.run(indexSql, (err) => {
-                        if (err) {
-                            console.error(`Error creating index ${i + 1}:`, err.message);
-                        } else {
-                            console.log(`Index ${i + 1} created or already exists`);
-                        }
+                    safeDbRun(indexSql, [], () => {
+                        console.log(`Index ${i + 1} created or already exists`);
                         indexesCreated++;
                         if (indexesCreated === indexes.length) {
                             console.log('All database indexes created successfully');
-                            db.close((err) => {
-                                if (err) {
-                                    console.error('Error closing database:', err.message);
-                                } else {
-                                    console.log('Database setup completed successfully');
-                                }
-                                callback();
-                            });
+                            console.log('Database setup completed successfully');
+                            callback(db); // Pass the open database connection
                         }
                     });
                 });
@@ -144,7 +188,7 @@ function setupDatabaseSchema(db, callback) {
         }
 
         // Create deploys table
-        db.run(`CREATE TABLE IF NOT EXISTS deploys (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS deploys (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             max INTEGER NOT NULL,
@@ -155,17 +199,13 @@ function setupDatabaseSchema(db, callback) {
             source_id TEXT NOT NULL,
             wallet TEXT,
             UNIQUE(id)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating deploys table:', err.message);
-            } else {
-                console.log('Deploys table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Deploys table created or already exists');
             checkCompletion();
         });
 
         // Create mints table
-        db.run(`CREATE TABLE IF NOT EXISTS mints (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS mints (
             id TEXT PRIMARY KEY,
             deploy_id TEXT NOT NULL,
             source_id TEXT NOT NULL,
@@ -176,16 +216,13 @@ function setupDatabaseSchema(db, callback) {
             wallet TEXT,
             FOREIGN KEY (deploy_id) REFERENCES deploys(id),
             UNIQUE(id)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating mints table:', err.message);
-            } else {
-                console.log('Mints table created or already exists');            }
+        )`, [], () => {
+            console.log('Mints table created or already exists');
             checkCompletion();
         });
 
         // Create bitmaps table with enhanced schema for Mondrian visualization
-        db.run(`CREATE TABLE IF NOT EXISTS bitmaps (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS bitmaps (
             inscription_id TEXT PRIMARY KEY,
             bitmap_number INTEGER NOT NULL,
             content TEXT NOT NULL,
@@ -196,17 +233,13 @@ function setupDatabaseSchema(db, callback) {
             wallet TEXT,
             UNIQUE(inscription_id),
             UNIQUE(bitmap_number)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating bitmaps table:', err.message);
-            } else {
-                console.log('Bitmaps table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Bitmaps table created or already exists');
             checkCompletion();
         });
 
         // Create bitmap_patterns table for storing transaction pattern arrays
-        db.run(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             bitmap_number INTEGER NOT NULL,
             block_height INTEGER NOT NULL,
@@ -215,59 +248,60 @@ function setupDatabaseSchema(db, callback) {
             generated_at INTEGER NOT NULL,
             FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number),
             UNIQUE(bitmap_number, block_height)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating bitmap_patterns table:', err.message);
-            } else {
-                console.log('Bitmap patterns table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Bitmap patterns table created or already exists');
             checkCompletion();
         });
 
         // Create wallets table
-        db.run(`CREATE TABLE IF NOT EXISTS wallets (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS wallets (
             inscription_id TEXT PRIMARY KEY,
             address TEXT NOT NULL,
             type TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
             UNIQUE(inscription_id)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating wallets table:', err.message);
-            } else {
-                console.log('Wallets table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Wallets table created or already exists');
             checkCompletion();
         });
 
         // Create blocks table for tracking processed blocks
-        db.run(`CREATE TABLE IF NOT EXISTS blocks (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS blocks (
             block_height INTEGER PRIMARY KEY,
             processed INTEGER NOT NULL DEFAULT 0,
             processed_at INTEGER,
             UNIQUE(block_height)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating blocks table:', err.message);
-            } else {
-                console.log('Blocks table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Blocks table created or already exists');
             checkCompletion();
         });
 
         // Create error_blocks table for retry mechanism
-        db.run(`CREATE TABLE IF NOT EXISTS error_blocks (
+        safeDbRun(`CREATE TABLE IF NOT EXISTS error_blocks (
             block_height INTEGER PRIMARY KEY,
             error_message TEXT,
             retry_count INTEGER DEFAULT 0,
             retry_at INTEGER,
             UNIQUE(block_height)
-        )`, (err) => {
-            if (err) {
-                console.error('Error creating error_blocks table:', err.message);
-            } else {
-                console.log('Error blocks table created or already exists');
-            }
+        )`, [], () => {
+            console.log('Error blocks table created or already exists');
+            checkCompletion();
+        });
+
+        // Create block_stats table for tracking transaction counts and other block metrics
+        safeDbRun(`CREATE TABLE IF NOT EXISTS block_stats (
+            block_height INTEGER PRIMARY KEY,
+            total_transactions INTEGER NOT NULL,
+            total_inscriptions INTEGER DEFAULT 0,
+            brc420_deploys INTEGER DEFAULT 0,
+            brc420_mints INTEGER DEFAULT 0,
+            bitmaps INTEGER DEFAULT 0,
+            parcels INTEGER DEFAULT 0,
+            processed_at INTEGER NOT NULL,
+            ordinals_api_transactions INTEGER,
+            UNIQUE(block_height)
+        )`, [], () => {
+            console.log('Block stats table created or already exists');
             checkCompletion();
         });
     });

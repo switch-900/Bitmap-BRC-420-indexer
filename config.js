@@ -160,70 +160,7 @@ module.exports = {    // Primary API URLs - prefer local Umbrel services if avai
         if (process.env.API_WALLET_URL) {
             return process.env.API_WALLET_URL;
         }
-        
-        // Default fallback to external API - will be tested dynamically for local services
-        return 'https://mempool.space/api';
-    },
-    
-    // Get all possible mempool API endpoints to test (OFFICIAL UMBREL PATTERNS)
-    getMempoolApiEndpoints() {
-        const endpoints = [];
-        
-        // If explicitly configured, try that first
-        if (process.env.API_WALLET_URL) {
-            endpoints.push(process.env.API_WALLET_URL);
-        }
-        
-        // OFFICIAL UMBREL SERVICE NAMING PATTERN: {app-id}_{service-name}_{instance-number}
-        // Based on official mempool app configuration from Umbrel repository
-        const officialUmbrelMempoolEndpoints = [
-            'http://mempool_web_1:3006/api',        // Most likely official pattern
-            'http://mempool_api_1:3006/api',        // Alternative service name
-            'http://mempool_server_1:3006/api',     // Another alternative
-            'http://bitcoin-mempool_web_1:3006/api', // If app-id includes 'bitcoin-'
-            'http://bitcoin-mempool_api_1:3006/api'
-        ];
-        
-        // Environment variable approach (official Umbrel pattern)
-        if (process.env.APP_MEMPOOL_NODE_IP) {
-            endpoints.push(`http://${process.env.APP_MEMPOOL_NODE_IP}:3006/api`);
-        }
-        
-        // From official Umbrel mempool app exports.sh - use internal Docker IP
-        if (process.env.APP_MEMPOOL_API_IP) {
-            endpoints.push(`http://${process.env.APP_MEMPOOL_API_IP}:3006/api`);
-        }
-        
-        // System hostnames (from official docs)
-        if (process.env.DEVICE_HOSTNAME && process.env.DEVICE_DOMAIN_NAME) {
-            endpoints.push(`http://${process.env.DEVICE_HOSTNAME}.${process.env.DEVICE_DOMAIN_NAME}:3006/api`);
-        }
-        
-        // Legacy/fallback endpoints (including external API)
-        const fallbackEndpoints = [
-            'http://umbrel.local:3006/api',
-            'http://10.21.21.27:3006/api',      // Official Umbrel mempool API IP
-            'http://10.21.21.26:3006/api',      // Official Umbrel mempool main IP
-            'http://172.17.0.1:3006/api',       // Docker gateway
-            'http://localhost:3006/api',
-            'http://127.0.0.1:3006/api',
-            'https://mempool.space/api'         // External fallback
-        ];
-        
-        // Combine all endpoints with official patterns first
-        endpoints.push(...officialUmbrelMempoolEndpoints, ...fallbackEndpoints);
-        
-        return [...new Set(endpoints)]; // Remove duplicates
-    },
-    
-    // Get the appropriate mempool API URL for the current environment  
-    getMempoolApiUrl() {
-        // If explicitly set, use that
-        if (process.env.API_WALLET_URL) {
-            return process.env.API_WALLET_URL;
-        }
-        
-        // Default fallback to external API - will be tested dynamically for local services
+          // Default fallback to external API - will be tested dynamically for local services
         return 'https://mempool.space/api';
     }
 };
