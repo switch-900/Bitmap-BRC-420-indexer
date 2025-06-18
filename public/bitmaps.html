@@ -695,9 +695,7 @@
             }
 
             return element;
-        }
-
-        function renderBitmapPreview(canvasId, bitmap) {
+        }        function renderBitmapPreview(canvasId, bitmap) {
             const canvas = document.getElementById(canvasId);
             if (!canvas || !bitmap.txList) return;
 
@@ -705,7 +703,7 @@
                 const ctx = canvas.getContext('2d');
                 const size = canvas.width;
 
-                // Create Mondrian layout
+                // Create Mondrian layout with simple number array
                 const mondrian = new MondrianLayout(bitmap.txList);
                 if (!mondrian || mondrian.slots.length === 0) {
                     // Fallback pattern
@@ -717,16 +715,48 @@
                     return;
                 }
 
-                // Render Mondrian pattern
-                renderMondrianToCanvas(mondrian, canvas, {
-                    cellSize: Math.min(size / Math.max(mondrian.width, mondrian.height), 4),
-                    strokeWidth: 1,
-                    backgroundColor: '#ffffff',
-                    strokeColor: '#000000',
-                    showEmptySpaces: false
+                // Render Mondrian pattern with proper transaction colors
+                const cellSize = Math.min(size / Math.max(mondrian.width, mondrian.height), 4);
+                
+                // Clear canvas
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, size, size);
+                
+                // Draw transaction squares with proper colors from transaction data
+                mondrian.slots.forEach((slot, index) => {
+                    const x = slot.position.x * cellSize;
+                    const y = slot.position.y * cellSize;
+                    const slotSize = slot.size * cellSize;
+                    
+                    // Use transaction-specific color if available
+                    let color = '#00aaff'; // Default blue
+                    if (bitmap.transactions && bitmap.transactions[index]) {
+                        color = bitmap.transactions[index].color || `hsl(${(bitmap.transactions[index].blockHeight % 360)}, 70%, 50%)`;
+                    } else {
+                        // Generate color based on transaction value/size
+                        const hue = ((slot.position.x * 73 + slot.position.y * 97 + slot.size * 139) % 360);
+                        color = `hsl(${hue}, 70%, 50%)`;
+                    }
+                    
+                    // Fill square with transaction color
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y, slotSize, slotSize);
+                    
+                    // Draw border
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, slotSize, slotSize);
                 });
+                
             } catch (error) {
                 console.warn('Error rendering bitmap preview:', error);
+                // Fallback gradient
+                const ctx = canvas.getContext('2d');
+                const gradient = ctx.createLinearGradient(0, 0, size, size);
+                gradient.addColorStop(0, '#ff6b35');
+                gradient.addColorStop(1, '#f7931e');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, size, size);
             }
         }
 
@@ -743,18 +773,45 @@
                 visualization.innerHTML = `
                     <canvas id="modalCanvas" width="400" height="400" class="modal-canvas"></canvas>
                 `;
-                
-                setTimeout(() => {
+                  setTimeout(() => {
                     try {
                         const canvas = document.getElementById('modalCanvas');
                         const mondrian = new MondrianLayout(bitmap.txList);
-                        renderMondrianToCanvas(mondrian, canvas, {
-                            cellSize: Math.min(400 / Math.max(mondrian.width, mondrian.height), 10),
-                            strokeWidth: 2,
-                            backgroundColor: '#ffffff',
-                            strokeColor: '#000000',
-                            showEmptySpaces: true
+                        
+                        // Custom rendering for modal with proper colors
+                        const ctx = canvas.getContext('2d');
+                        const cellSize = Math.min(400 / Math.max(mondrian.width, mondrian.height), 10);
+                        
+                        // Clear canvas
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, 400, 400);
+                        
+                        // Draw transaction squares with transaction-specific colors
+                        mondrian.slots.forEach((slot, index) => {
+                            const x = slot.position.x * cellSize;
+                            const y = slot.position.y * cellSize;
+                            const slotSize = slot.size * cellSize;
+                            
+                            // Use transaction-specific color if available
+                            let color = '#00aaff'; // Default blue
+                            if (bitmap.transactions && bitmap.transactions[index]) {
+                                color = bitmap.transactions[index].color || `hsl(${(bitmap.transactions[index].blockHeight % 360)}, 70%, 50%)`;
+                            } else {
+                                // Generate color based on slot properties
+                                const hue = ((slot.position.x * 73 + slot.position.y * 97 + slot.size * 139) % 360);
+                                color = `hsl(${hue}, 70%, 50%)`;
+                            }
+                            
+                            // Fill square with transaction color
+                            ctx.fillStyle = color;
+                            ctx.fillRect(x, y, slotSize, slotSize);
+                            
+                            // Draw border
+                            ctx.strokeStyle = '#000000';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(x, y, slotSize, slotSize);
                         });
+                        
                     } catch (error) {
                         visualization.innerHTML = '<div class="loading" style="color: #ff6b35;">Error generating visualization</div>';
                     }

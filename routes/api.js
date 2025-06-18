@@ -349,12 +349,25 @@ router.get('/bitmap/:bitmap_number/pattern', (req, res) => {
                 block_height: row.block_height,
                 transaction_count: row.transaction_count,
                 generated_at: row.generated_at
-            };
-              // New enhanced format with pattern string and txList
+            };            // New enhanced format with pattern string and txList
             if (patternData.pattern && patternData.txList) {
-                responseData.pattern = patternData.pattern; // String like "554433221"
-                responseData.txList = patternData.txList; // Array like [5,5,4,4,3,3,2,2,1]
-                responseData.squareSizes = patternData.txList; // Backward compatibility
+                responseData.pattern = patternData.pattern;
+                
+                // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
+                if (typeof patternData.txList === 'string') {
+                    // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
+                    responseData.txList = patternData.txList.split('').map(Number);
+                } else if (Array.isArray(patternData.txList)) {
+                    // Already an array
+                    responseData.txList = patternData.txList;
+                } else if (patternData.txListArray) {
+                    // Use backup array format
+                    responseData.txList = patternData.txListArray;
+                } else {
+                    responseData.txList = [];
+                }
+                
+                responseData.squareSizes = responseData.txList; // Backward compatibility
                 responseData.transactions = patternData.transactions; // Detailed transaction data
             } else if (patternData.pattern && patternData.squareSizes) {
                 // Handle old squareSizes naming for backward compatibility
@@ -401,18 +414,31 @@ router.get('/bitmaps/enhanced', (req, res) => {
     db.all(query, [limit, offset], (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
-        }
-          // Parse pattern data for each row
+        }        // Parse pattern data for each row
         const enhancedRows = rows.map(row => {
             if (row.pattern_data) {
                 try {
                     const patternData = JSON.parse(row.pattern_data);
                       // Handle both old and new pattern data formats
                     if (patternData.pattern && patternData.txList) {
-                        // New enhanced format with txList
-                        row.pattern = patternData.pattern; // String like "554433221"
-                        row.txList = patternData.txList; // Array like [5,5,4,4,3,3,2,2,1]
-                        row.squareSizes = patternData.txList; // Backward compatibility
+                        // New enhanced format with txList (could be string or array)
+                        row.pattern = patternData.pattern;
+                        
+                        // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
+                        if (typeof patternData.txList === 'string') {
+                            // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
+                            row.txList = patternData.txList.split('').map(Number);
+                        } else if (Array.isArray(patternData.txList)) {
+                            // Already an array
+                            row.txList = patternData.txList;
+                        } else if (patternData.txListArray) {
+                            // Use backup array format
+                            row.txList = patternData.txListArray;
+                        } else {
+                            row.txList = [];
+                        }
+                        
+                        row.squareSizes = row.txList; // Backward compatibility
                         row.transactions = patternData.transactions; // Detailed transaction data
                     } else if (patternData.pattern && patternData.squareSizes) {
                         // Handle old squareSizes naming for backward compatibility
@@ -557,12 +583,25 @@ router.get('/bitmaps/search', (req, res) => {
                 if (row.pattern_data) {
                     try {
                         const patternData = JSON.parse(row.pattern_data);
-                        
-                        // Handle both old and new pattern data formats
+                          // Handle both old and new pattern data formats
                         if (patternData.pattern && patternData.txList) {
                             row.pattern = patternData.pattern;
-                            row.txList = patternData.txList;
-                            row.squareSizes = patternData.txList;
+                            
+                            // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
+                            if (typeof patternData.txList === 'string') {
+                                // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
+                                row.txList = patternData.txList.split('').map(Number);
+                            } else if (Array.isArray(patternData.txList)) {
+                                // Already an array
+                                row.txList = patternData.txList;
+                            } else if (patternData.txListArray) {
+                                // Use backup array format
+                                row.txList = patternData.txListArray;
+                            } else {
+                                row.txList = [];
+                            }
+                            
+                            row.squareSizes = row.txList;
                             row.transactions = patternData.transactions;
                         } else if (patternData.pattern && patternData.squareSizes) {
                             row.pattern = patternData.pattern;

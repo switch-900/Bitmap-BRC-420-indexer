@@ -148,19 +148,65 @@ async function getInscriptionContentCached(inscriptionId) {
 }
 
 async function getInscriptionDetailsCached(inscriptionId) {
-    const cacheKey = `details_${inscriptionId}`;
-    const cached = apiCache.get(cacheKey);
-    if (cached !== null) return cached;
+    const cacheKey = `inscription_${inscriptionId}`;
     
     try {
+        // Check cache first
+        if (apiCache.has(cacheKey)) {
+            return apiCache.get(cacheKey);
+        }
+
+        // Try ord API endpoint for inscription details
         const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
+            timeout: 10000,
             headers: { 'Accept': 'application/json' }
         });
-        const details = response.data || null;
-        apiCache.set(cacheKey, details);
-        return details;
+
+        if (response.data) {
+            const details = {
+                id: response.data.id,
+                address: response.data.address, // Current holder address
+                sat: response.data.sat, // Sat number
+                satpoint: response.data.satpoint,
+                timestamp: response.data.timestamp,
+                height: response.data.height,
+                content_type: response.data.content_type,
+                content_length: response.data.content_length,
+                fee: response.data.fee,
+                value: response.data.value
+            };
+
+            // Cache the result
+            apiCache.set(cacheKey, details);
+            return details;
+        }
+
+        return null;
+
     } catch (error) {
-        logger.error(`Error getting inscription details for ${inscriptionId}:`, { message: error.message });
+        logger.debug(`Error fetching inscription details for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+// Function to get current wallet address (where inscription is now)
+async function getCurrentWalletAddress(inscriptionId) {
+    try {
+        const details = await getInscriptionDetailsCached(inscriptionId);
+        return details ? details.address : null;
+    } catch (error) {
+        logger.error(`Error getting current wallet for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+// Function to get sat number from inscription
+async function getSatNumber(inscriptionId) {
+    try {
+        const details = await getInscriptionDetailsCached(inscriptionId);
+        return details ? details.sat : null;
+    } catch (error) {
+        logger.error(`Error getting sat number for ${inscriptionId}:`, { message: error.message });
         return null;
     }
 }
@@ -520,36 +566,61 @@ async function saveMint(mintData) {
 
 // Function to save bitmap data
 async function saveBitmap(bitmapData) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT bitmap_number FROM bitmaps WHERE bitmap_number = ?", [bitmapData.bitmap_number], (err, row) => {
-            if (err) {
-                logger.error(`Error checking if bitmap ${bitmapData.bitmap_number} exists:`, { message: err.message });
-                reject(err);
-            } else if (row) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            // Check if bitmap already exists
+            const existingBitmap = await new Promise((resolveDb, rejectDb) => {
+                db.get("SELECT bitmap_number FROM bitmaps WHERE bitmap_number = ?", [bitmapData.bitmap_number], (err, row) => {
+                    if (err) rejectDb(err);
+                    else resolveDb(row);
+                });
+            });
+
+            if (existingBitmap) {
                 logger.info(`Bitmap ${bitmapData.bitmap_number} already exists. Skipping.`);
                 resolve(false);
-            } else {
-                const stmt = db.prepare("INSERT INTO bitmaps (inscription_id, bitmap_number, content, address, timestamp, block_height, wallet) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                stmt.run([bitmapData.inscription_id, bitmapData.bitmap_number, bitmapData.content, bitmapData.address, bitmapData.timestamp, bitmapData.block_height, bitmapData.address], async function(err) {
-                    if (err) {
-                        logger.error(`Error saving bitmap ${bitmapData.bitmap_number}:`, { message: err.message });
-                        reject(err);
-                    } else {
-                        logger.info(`Bitmap ${bitmapData.bitmap_number} saved to database.`);
-                        saveOrUpdateWallet(bitmapData.inscription_id, bitmapData.address, 'bitmap');
-                        
-                        // Generate bitmap pattern for visualization
-                        try {
-                            await generateBitmapPattern(bitmapData.bitmap_number, bitmapData.inscription_id);
-                        } catch (patternError) {
-                            logger.warn(`Failed to generate pattern for bitmap ${bitmapData.bitmap_number}:`, { message: patternError.message });
-                        }
-                        
-                        resolve(true);
-                    }
-                });
+                return;
             }
-        });
+
+            // Fetch inscription details to get sat number and current wallet
+            const inscriptionDetails = await getInscriptionDetailsCached(bitmapData.inscription_id);
+            const satNumber = inscriptionDetails ? inscriptionDetails.sat : null;
+            const currentWallet = inscriptionDetails ? inscriptionDetails.address : bitmapData.address;
+            
+            const stmt = db.prepare("INSERT INTO bitmaps (inscription_id, bitmap_number, content, address, timestamp, block_height, sat, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            stmt.run([
+                bitmapData.inscription_id, 
+                bitmapData.bitmap_number, 
+                bitmapData.content, 
+                bitmapData.address, // Original mint address
+                bitmapData.timestamp, 
+                bitmapData.block_height, 
+                satNumber, // Sat number from ordinals API
+                currentWallet // Current holder address
+            ], function(err) {
+                if (err) {
+                    logger.error(`Error saving bitmap ${bitmapData.bitmap_number}:`, { message: err.message });
+                    reject(err);
+                } else {
+                    logger.info(`Bitmap ${bitmapData.bitmap_number} saved to database.`);
+                    saveOrUpdateWallet(bitmapData.inscription_id, bitmapData.address, 'bitmap');
+                    
+                    // Generate bitmap pattern for visualization (async without await)
+                    generateBitmapPattern(bitmapData.bitmap_number, bitmapData.inscription_id)
+                        .then(() => {
+                            logger.info(`Pattern generation completed for bitmap ${bitmapData.bitmap_number}`);
+                        })
+                        .catch(patternError => {
+                            logger.warn(`Failed to generate pattern for bitmap ${bitmapData.bitmap_number}:`, { message: patternError.message });
+                        });
+                    
+                    resolve(true);
+                }
+            });
+        } catch (error) {
+            logger.error(`Error in saveBitmap for ${bitmapData.bitmap_number}:`, { message: error.message });
+            reject(error);
+        }
     });
 }
 
@@ -1146,13 +1217,13 @@ async function processInscription(inscriptionId, blockHeight) {
             else if (isValidBitmapFormat(content)) {
                 const bitmapNumber = parseInt(content.split('.')[0], 10);
                 if (!isNaN(bitmapNumber) && bitmapNumber >= 0 && bitmapNumber <= blockHeight) {
-                    const address = await getDeployerAddressCached(inscriptionId);
-                    if (address) {
+                    const mintAddress = await getDeployerAddressCached(inscriptionId);
+                    if (mintAddress) {
                         const saved = await saveBitmap({
                             inscription_id: inscriptionId,
                             bitmap_number: bitmapNumber,
                             content: content,
-                            address: address,
+                            address: mintAddress, // Original mint address
                             timestamp: Date.now(),
                             block_height: blockHeight
                         });
@@ -1586,16 +1657,37 @@ async function generateBitmapPattern(bitmapNumber, inscriptionId) {
         }
 
         // Convert transaction data to pattern format for Mondrian visualization
+        const txListArray = txHistory.map(tx => {
+            // Use proper value-to-size conversion (like in the original demo)
+            const btcValue = tx.value / 100000000; // Convert sats to BTC
+            let size;
+            if (btcValue === 0) size = 1;
+            else if (btcValue <= 0.01) size = 1;
+            else if (btcValue <= 0.1) size = 2;
+            else if (btcValue <= 1) size = 3;
+            else if (btcValue <= 10) size = 4;
+            else if (btcValue <= 100) size = 5;
+            else if (btcValue <= 1000) size = 6;
+            else if (btcValue <= 10000) size = 7;
+            else if (btcValue <= 100000) size = 8;
+            else if (btcValue <= 1000000) size = 9;
+            else size = 9;
+            
+            return size; // Return simple number for MondrianLayout
+        });
+
         const patternData = {
             pattern: 'mondrian',
-            txList: txHistory.map(tx => ({
-                size: Math.max(1, Math.min(10, Math.floor(tx.value / 100000) || 1)), // Convert satoshi value to size 1-10
-                color: `hsl(${(tx.blockHeight % 360)}, 70%, 50%)`, // Color based on block height
+            // Store txList as simple string of digits 1-9 for better compression
+            txList: txListArray.join(''), // "554433221" instead of [5,5,4,4,3,3,2,2,1]
+            txListArray: txListArray, // Keep array format for backward compatibility
+            transactions: txHistory.map(tx => ({
                 txid: tx.txid,
                 blockHeight: tx.blockHeight,
-                value: tx.value
+                value: tx.value,
+                size: Math.max(1, Math.min(9, Math.floor(tx.value / 100000) || 1)),
+                color: `hsl(${(tx.blockHeight % 360)}, 70%, 50%)`
             })),
-            transactions: txHistory,
             generatedAt: new Date().toISOString()
         };
 
