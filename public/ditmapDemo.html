@@ -1,0 +1,1945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BRC-420 Indexer - Complete Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1a2e 50%, #0d1b2a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 165, 0, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }        .header h1 {
+            font-size: 3.5rem;
+            background: linear-gradient(135deg, #00ffff 0%, #ff8c00 50%, #00e5ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 15px;
+            font-weight: 700;
+            text-shadow: 0 4px 20px rgba(0, 255, 255, 0.3);
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 20px rgba(0, 255, 255, 0.5)); }
+            to { filter: drop-shadow(0 0 40px rgba(255, 140, 0, 0.8)); }
+        }        .subtitle {
+            font-size: 1.2rem;
+            color: #b0b0b0;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 25px;
+            padding: 15px 30px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            display: inline-block;
+        }
+
+        .navigation {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }        .nav-link {
+            padding: 12px 25px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 12px;
+            color: #e0e0e0;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-link::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.4), transparent);
+            transition: left 0.5s;
+        }
+
+        .nav-link:hover::before {
+            left: 100%;
+        }
+
+        .nav-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.4);
+            border-color: #00ffff;
+            background: linear-gradient(135deg, rgba(0, 255, 255, 0.2) 0%, rgba(255, 140, 0, 0.2) 100%);
+        }
+
+        .test-banner {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+            animation: slideIn 0.8s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .search-container {
+            margin-bottom: 40px;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }        .search-box {
+            width: 100%;
+            max-width: 600px;
+            padding: 18px 25px;
+            font-size: 16px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            color: #e0e0e0;
+            outline: none;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .search-box:focus {
+            border-color: #00ffff;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.4);
+            transform: scale(1.02);
+        }
+
+        .search-box::placeholder {
+            color: #a0a0a0;
+        }        .bitmap-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 50px;
+            justify-items: center;
+        }        .bitmap-card {
+            background: linear-gradient(135deg, #00e5ff 0%, #ff8c00 100%);
+            border: 3px solid #00ffff;
+            border-radius: 15px;
+            width: 180px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            overflow: hidden;
+            position: relative;
+            animation: fadeInUp 0.6s ease-out;
+            box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }        .bitmap-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #00ffff, #ff8c00);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .bitmap-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .bitmap-card:hover {
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.5);
+        }
+
+        .bitmap-card:active {
+            transform: translateY(-2px) scale(1.02);
+        }
+
+        .bitmap-header {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            text-align: center;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .bitmap-id {
+            font-size: 16px;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            margin: 0;
+        }
+
+        .result-number {
+            display: none; /* Hide result number for cleaner look */
+        }        .bitmap-content {
+            padding: 0;
+            background: #000000; /* Black background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .pattern-preview-container {
+            width: 100%;
+            text-align: center;
+            padding: 0;
+        }        .pattern-preview {
+            width: 180px !important;
+            height: 180px !important;
+            border: none !important;
+            border-radius: 0 !important;
+            background: #000000 !important; /* Black background */
+            box-shadow: none !important;
+            display: block;
+        }.bitmap-visualization {
+            margin-top: 40px;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 2px solid rgba(255, 107, 53, 0.3);
+            border-radius: 20px;
+            animation: slideUp 0.5s ease-out;
+            display: none;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .bitmap-visualization h3 {
+            color: #ff6b35;
+            font-size: 28px;
+            margin-bottom: 25px;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .pattern-info {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 25px;
+            border-radius: 15px;
+            margin: 25px 0;
+            font-family: 'Courier New', monospace;
+            border-left: 5px solid #ff6b35;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .pattern-info > div {
+            margin: 10px 0;
+            padding: 8px 0;
+            color: #e0e0e0;
+        }
+
+        .pattern-info strong {
+            color: #ff6b35;
+        }
+
+        .visualization-controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+
+        .visualization-controls button {
+            padding: 15px 30px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .visualization-controls button:not(.close-visualization) {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+        }
+
+        .visualization-controls button:not(.close-visualization):hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(255, 107, 53, 0.5);
+        }
+
+        .close-visualization {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        .close-visualization:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(220, 53, 69, 0.5);
+        }
+
+        .bitmap-canvas {
+            border: 3px solid rgba(255, 107, 53, 0.4);
+            border-radius: 15px;
+            margin: 25px 0;
+            background: white;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            font-weight: 600;
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.4);
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.error {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .notification.warning {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: #000;
+        }
+
+        .notification.info {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { 
+                transform: translateY(-50px) scale(0.9);
+                opacity: 0;
+            }
+            to { 
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+        }        .modal-content {
+            background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.4);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 50px rgba(0, 255, 255, 0.3);
+            animation: slideIn 0.3s ease-out;
+            position: relative;
+        }        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(0, 255, 255, 0.3);
+        }        .modal-title {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00ffff 0%, #ff8c00 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .modal-close {
+            background: rgba(220, 53, 69, 0.8);
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: rgba(220, 53, 69, 1);
+            transform: scale(1.1);
+        }
+
+        .modal-body {
+            display: grid;
+            gap: 25px;
+        }
+
+        .modal-pattern-section {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 25px;
+            align-items: start;
+        }
+
+        @media (max-width: 768px) {
+            .modal-pattern-section {
+                grid-template-columns: 1fr;
+            }
+            
+            .modal-content {
+                padding: 20px;
+                margin: 10px;
+            }
+        }
+
+        .modal-canvas-container {
+            text-align: center;
+        }        .modal-bitmap-canvas {
+            border: 3px solid rgba(0, 255, 255, 0.5);
+            border-radius: 15px;
+            background: #000000; /* Black background */
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.3);
+        }        .modal-pattern-info {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-pattern-info h3 {
+            color: #00ffff;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .modal-pattern-info div {
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+
+        .modal-controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }        .modal-controls button {
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: linear-gradient(135deg, #00ffff 0%, #ff8c00 100%);
+            color: #1a1a2e;
+            box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+        }
+
+        .modal-controls button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.5);
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        .modal-overlay.hiding {
+            animation: fadeOut 0.3s ease-out forwards;
+        }
+
+        /* Update existing styles to hide bottom visualization */
+        #bitmapVisualization {
+            display: none !important;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .modal-pattern-section {
+                grid-template-columns: 1fr;
+            }
+        }        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #00ffff 0%, #ff8c00 100%);
+            border-radius: 6px;
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #ff8c00 0%, #00ffff 100%);
+            background-clip: content-box;
+        }        .loading-skeleton {
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.1) 25%, rgba(0, 255, 255, 0.3) 50%, rgba(255, 255, 255, 0.1) 75%);
+            background-size: 200% 100%;
+            animation: loading 2s infinite;
+        }        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }        /* Enhanced Filter Control Interactions */
+        select:focus, input[type="number"]:focus {
+            outline: none;
+            border-color: #00ffff !important;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4) !important;
+            transform: scale(1.02);
+        }
+
+        select:hover, input[type="number"]:hover {
+            border-color: rgba(0, 255, 255, 0.6) !important;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2) !important;
+        }/* Reset button hover */
+        button[onclick="resetFilters()"]:hover {
+            background: linear-gradient(135deg, #008b8b 0%, #00ffff 100%) !important;
+            box-shadow: 0 6px 20px rgba(0, 255, 255, 0.4) !important;
+            transform: translateY(-2px) scale(1.05);
+        }
+
+        /* Collapsible Section Styles */
+        .filter-section-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 15px 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .filter-section-header:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(0, 255, 255, 0.4);
+        }
+
+        .filter-section-header .toggle-icon {
+            font-size: 16px;
+            transition: transform 0.3s ease;
+            color: #00ffff;
+        }
+
+        .filter-section-header.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .filter-section-header .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffff;
+        }
+
+        .filter-section-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 200px;
+            opacity: 1;
+        }
+
+        .filter-section-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+        }        .transaction-filters {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        /* Quick Search Button Styles */
+        button[onclick^="quickSearchBlock"]:hover {
+            background: rgba(0, 255, 255, 0.2) !important;
+            border-color: rgba(0, 255, 255, 0.6) !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 255, 255, 0.3);        }
+    </style>
+    
+    <!-- High-Scale Optimization Scripts -->
+    <script src="js/svg-mondrian.js"></script>
+    <script src="js/progressive-loading.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>BRC-420 Indexer</h1>
+            <div class="subtitle">Complete Demo with Test Data</div>
+        </div>
+
+        <div class="test-banner">
+            🎨 Interactive Demo Mode - Showcasing 12 Sample Bitmaps with Full Functionality (Including Large Blocks)
+        </div>
+
+        <div class="navigation">
+            <a href="index.html" class="nav-link">🏠 Home</a>
+            <a href="bitmaps.html" class="nav-link">🎯 Live Bitmaps</a>
+            <a href="bitmaps-test.html" class="nav-link">🧪 Test Mode</a>
+            <a href="#" class="nav-link" style="background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color: white;">📊 Complete Demo</a>
+        </div>        <div class="search-container">
+            <input type="text" id="searchBox" class="search-box" placeholder="🔍 Search by block number, bitmap #, tick, transaction, or address... (e.g. 830000)">
+            <button onclick="performSearch()" style="
+                padding: 18px 30px;
+                font-size: 16px;
+                font-weight: 600;
+                border: none;
+                border-radius: 25px;
+                background: linear-gradient(135deg, #00e5ff 0%, #ff8c00 100%);
+                color: white;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                margin-left: 15px;
+                box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+            ">🔍 Search</button>
+            <button onclick="clearSearch()" style="
+                padding: 18px 30px;
+                font-size: 16px;
+                font-weight: 600;
+                border: none;
+                border-radius: 25px;
+                background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+                color: white;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                margin-left: 10px;                box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
+            ">🗑️ Clear</button>
+        </div>        <!-- Quick Search Examples -->
+        <div style="
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+        ">
+            <div style="color: #888; font-size: 12px; margin-bottom: 8px;">
+                Quick Block Number Search Examples: 
+                <span style="color: #00ffff; font-size: 11px;">(Ctrl+B for block search mode)</span>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                <button onclick="quickSearchBlock('850123')" style="
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid rgba(0, 255, 255, 0.3);
+                    background: rgba(0, 255, 255, 0.1);
+                    color: #00ffff;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">850123</button>
+                <button onclick="quickSearchBlock('851000')" style="
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid rgba(0, 255, 255, 0.3);
+                    background: rgba(0, 255, 255, 0.1);
+                    color: #00ffff;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">851000</button>
+                <button onclick="quickSearchBlock('855000')" style="
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid rgba(0, 255, 255, 0.3);
+                    background: rgba(0, 255, 255, 0.1);
+                    color: #00ffff;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">855000</button>
+                <button onclick="quickSearchBlock('857000')" style="
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid rgba(0, 255, 255, 0.3);
+                    background: rgba(0, 255, 255, 0.1);
+                    color: #00ffff;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                ">857000</button>
+            </div>
+            <div style="color: #666; font-size: 10px; margin-top: 8px;">
+                💡 Enter exact block numbers for precise results, or partial numbers for broader search
+            </div>
+        </div><!-- Enhanced Filter Controls -->
+        <div class="filter-controls" style="
+            margin-bottom: 30px;
+            padding: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.2);
+        ">
+            <!-- Sort Controls (Always Visible) -->
+            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <label style="color: #00ffff; font-weight: 600; font-size: 12px;">Sort By</label>
+                    <select id="sortBy" onchange="applyFilters()" style="
+                        padding: 10px 15px;
+                        border-radius: 12px;
+                        border: 2px solid rgba(0, 255, 255, 0.4);
+                        background: rgba(255, 255, 255, 0.1);
+                        color: #e0e0e0;
+                        font-size: 14px;
+                        min-width: 180px;
+                        transition: all 0.3s ease;
+                    ">
+                        <option value="bitmap">📈 Bitmap # (Low to High)</option>
+                        <option value="bitmap-desc">📉 Bitmap # (High to Low)</option>
+                        <option value="block-height">⛏️ Block Height (Oldest)</option>
+                        <option value="block-height-desc">⛏️ Block Height (Recent)</option>
+                        <option value="date">📅 Date (Oldest)</option>
+                        <option value="date-desc">📅 Date (Recent)</option>
+                    </select>
+                </div>
+            </div>            <!-- Collapsible Transaction Filters Section -->
+            <div class="filter-section-header collapsed" onclick="toggleTransactionFilters()">
+                <span class="toggle-icon">▼</span>
+                <span class="section-title">🔧 Advanced Block Range Filter</span>
+                <span style="color: #888; font-size: 12px; margin-left: auto;">(Filter by Block Height)</span>
+            </div>
+
+            <div id="transactionFilters" class="filter-section-content collapsed">
+                <div class="transaction-filters">
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <label style="color: #00ffff; font-weight: 600; font-size: 12px;">Block Height Range</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="minBlock" placeholder="Min Block" onchange="applyFilters()" style="
+                                padding: 10px 15px;
+                                width: 100px;
+                                border-radius: 12px;
+                                border: 2px solid rgba(0, 255, 255, 0.4);
+                                background: rgba(255, 255, 255, 0.1);
+                                color: #e0e0e0;
+                                font-size: 14px;
+                                transition: all 0.3s ease;
+                            ">
+                            <input type="number" id="maxBlock" placeholder="Max Block" onchange="applyFilters()" style="
+                                padding: 10px 15px;
+                                width: 100px;
+                                border-radius: 12px;
+                                border: 2px solid rgba(0, 255, 255, 0.4);
+                                background: rgba(255, 255, 255, 0.1);
+                                color: #e0e0e0;
+                                font-size: 14px;
+                                transition: all 0.3s ease;
+                            ">
+                        </div>
+                        <div style="color: #888; font-size: 11px; margin-top: 5px;">
+                            💡 Example: 850000 - 857000
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: end;">
+                        <button onclick="resetFilters()" style="
+                            padding: 12px 25px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            border: none;
+                            border-radius: 12px;
+                            background: linear-gradient(135deg, #00ffff 0%, #008b8b 100%);
+                            color: #1a1a2e;
+                            cursor: pointer;
+                            transition: all 0.3s ease;
+                            box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+                        ">🔄 Reset All</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enhanced Results Summary -->        <div id="resultsBar" style="
+            margin-bottom: 30px;
+            padding: 20px 25px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            border: 2px solid rgba(0, 255, 255, 0.4);
+            text-align: center;
+            color: #00ffff;
+            font-weight: 600;
+            box-shadow: 0 8px 25px rgba(0, 255, 255, 0.2);
+        ">
+            <div id="resultsText" style="font-size: 18px; margin-bottom: 10px;">📊 12 Sample Bitmaps Available</div>
+            <div id="resultsDetails" style="
+                font-size: 14px; 
+                color: #b0b0b0; 
+                display: flex; 
+                justify-content: center; 
+                gap: 25px; 
+                flex-wrap: wrap;
+                margin-top: 10px;
+            ">
+                <span>🎯 All Results Shown</span>
+                <span>🔍 Interactive Search Ready</span>
+                <span>🎨 Click Any Bitmap to Explore</span>
+            </div>
+        </div>
+
+        <div id="bitmapContainer" class="bitmap-container">
+            <!-- Test data will be populated here -->
+        </div>
+
+        <div id="bitmapVisualization" class="bitmap-visualization">
+            <h3>Bitmap Visualization</h3>
+            <div class="pattern-info" id="patternInfo">
+                <div><strong>Selected Bitmap:</strong> <span id="selectedBitmapId">None</span></div>
+                <div><strong>Pattern Type:</strong> <span id="patternType">Mondrian Style</span></div>
+                <div><strong>Dimensions:</strong> <span id="patternDimensions">400x400</span></div>
+                <div><strong>Colors:</strong> <span id="patternColors">Red, Blue, Yellow, White, Black</span></div>
+                <div><strong>Generated:</strong> <span id="generatedTime">-</span></div>
+            </div>
+            <canvas id="bitmapCanvas" class="bitmap-canvas" width="400" height="400"></canvas>
+            <div class="visualization-controls">
+                <button onclick="generatePattern()">🎨 Generate New Pattern</button>
+                <button onclick="downloadCanvas()">💾 Download Image</button>
+                <button onclick="downloadBitmapInfo()">📄 Download Info</button>
+                <button onclick="closeVisualization()" class="close-visualization">✖️ Close</button>
+            </div>
+        </div>
+    </div>    <div id="notification" class="notification"></div>
+    <button id="scrollToTop" class="scroll-to-top" onclick="scrollToTop()">↑</button>
+
+    <!-- Modal for bitmap visualization -->
+    <div id="bitmapModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Bitmap Visualization</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-pattern-section">
+                    <div class="modal-canvas-container">
+                        <canvas id="modalCanvas" class="modal-bitmap-canvas" width="400" height="400"></canvas>
+                        <div class="modal-controls">
+                            <button onclick="generateModalPattern()">🎨 Regenerate</button>
+                            <button onclick="downloadModalCanvas()">💾 Download</button>
+                            <button onclick="downloadModalInfo()">📄 Info</button>
+                        </div>
+                    </div>
+                    <div class="modal-pattern-info">
+                        <h3>Bitmap Details</h3>
+                        <div id="modalPatternInfo">
+                            <!-- Pattern info will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include Mondrian.js for pattern visualization -->
+    <script src="js/mondrian.js"></script>
+    <script>
+        // Initialize high-scale optimization systems
+        let svgGenerator;
+        let progressiveLoader;
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize SVG generator for optimized rendering
+            svgGenerator = new SVGMondrianGenerator();
+            
+            // Initialize progressive loading manager
+            progressiveLoader = new ProgressiveLoadingManager({
+                bufferSize: 3,
+                lqipSize: 64,
+                adaptiveBandwidth: true,
+                loadingThreshold: 0.1
+            });
+            
+            console.log('✅ High-scale optimization systems initialized');
+        });
+
+        // Test data for demonstration with proper pattern arrays and larger transaction values
+        const testBitmaps = [
+            {
+                tick: "BTCS",
+                block_height: 850123,
+                tx_hash: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+                satpoint: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456:0:12345",
+                bitmap: "12345",
+                minted_address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+                div: "10",
+                dim: "8x8",
+                date_created: "2024-01-15 14:30:22",
+                pattern: "987654321",
+                txList: [100000000, 50000000, 25000000, 10000000, 5000000, 1000000, 500000, 100000, 50000], // Bitcoin amounts in satoshis
+                transaction_count: 9
+            },
+            {
+                tick: "SATS",
+                block_height: 851000,
+                tx_hash: "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345670",
+                satpoint: "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345670:1:67890",
+                bitmap: "67890",
+                minted_address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
+                div: "5",
+                dim: "16x16",
+                date_created: "2024-01-16 09:15:45",
+                pattern: "876543219",
+                txList: [75000000, 30000000, 15000000, 8000000, 3000000, 1500000, 800000, 400000, 200000], // Varied transaction sizes
+                transaction_count: 9
+            },
+            {
+                tick: "ORDX",
+                block_height: 851234,
+                tx_hash: "c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456789a",
+                satpoint: "c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456789a:0:11111",
+                bitmap: "11111",
+                minted_address: "bc1qxyz789abc123def456ghi789jkl012mno345pqr",
+                div: "25",
+                dim: "32x32",
+                date_created: "2024-01-17 16:45:12",
+                pattern: "999888777",
+                txList: [200000000, 150000000, 120000000, 80000000, 60000000, 40000000, 20000000, 10000000, 5000000], // Large transactions
+                transaction_count: 9
+            },
+            {
+                tick: "BITMAP",
+                block_height: 851500,
+                tx_hash: "d4e5f6789012345678901234567890abcdef1234567890abcdef123456789abc",
+                satpoint: "d4e5f6789012345678901234567890abcdef1234567890abcdef123456789abc:2:99999",
+                bitmap: "99999",
+                minted_address: "bc1qdef456ghi789jkl012mno345pqr678stu901vwx",
+                div: "100",
+                dim: "64x64",
+                date_created: "2024-01-18 11:20:33",
+                pattern: "765432189",
+                txList: [90000000, 70000000, 45000000, 25000000, 12000000, 6000000, 3000000, 1500000, 750000], // Progressive decrease
+                transaction_count: 9
+            },
+            {
+                tick: "PIXEL",
+                block_height: 851750,
+                tx_hash: "e5f6789012345678901234567890abcdef1234567890abcdef123456789abcde",
+                satpoint: "e5f6789012345678901234567890abcdef1234567890abcdef123456789abcde:1:55555",
+                bitmap: "55555",
+                minted_address: "bc1qghi789jkl012mno345pqr678stu901vwx234yza",
+                div: "50",
+                dim: "128x128",
+                date_created: "2024-01-19 13:55:18",
+                pattern: "123456789",
+                txList: [1000000, 2000000, 5000000, 10000000, 20000000, 35000000, 50000000, 75000000, 100000000], // Progressive increase
+                transaction_count: 9
+            },            {
+                tick: "ART",
+                block_height: 852000,
+                tx_hash: "f6789012345678901234567890abcdef1234567890abcdef123456789abcdef1",
+                satpoint: "f6789012345678901234567890abcdef1234567890abcdef123456789abcdef1:0:77777",
+                bitmap: "77777",
+                minted_address: "bc1qjkl012mno345pqr678stu901vwx234yza567bcd",
+                div: "1",
+                dim: "256x256",
+                date_created: "2024-01-20 08:40:27",
+                pattern: "987123456",
+                txList: [150000000, 85000000, 55000000, 2000000, 4000000, 8000000, 15000000, 30000000, 65000000], // Mixed sizes
+                transaction_count: 9
+            },
+            {
+                tick: "MEGA",
+                block_height: 853000,
+                tx_hash: "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+                satpoint: "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01:0:100001",
+                bitmap: "100001",
+                minted_address: "bc1qmno345pqr678stu901vwx234yza567bcd890efg",
+                div: "1000",
+                dim: "512x512",
+                date_created: "2024-01-21 10:15:30",
+                pattern: "1000tx-block",
+                txList: generateLargeTransactionList(1000), // 1000 transactions
+                transaction_count: 1000
+            },
+            {
+                tick: "HUGE",
+                block_height: 854000,
+                tx_hash: "234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+                satpoint: "234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12:1:200002",
+                bitmap: "200002",
+                minted_address: "bc1qpqr678stu901vwx234yza567bcd890efg123hij",
+                div: "2500",
+                dim: "1024x1024",
+                date_created: "2024-01-22 14:45:18",
+                pattern: "2500tx-block",
+                txList: generateLargeTransactionList(2500), // 2500 transactions
+                transaction_count: 2500
+            },
+            {
+                tick: "MASSIVE",
+                block_height: 855000,
+                tx_hash: "345678901abcdef2345678901abcdef2345678901abcdef2345678901abcdef23",
+                satpoint: "345678901abcdef2345678901abcdef2345678901abcdef2345678901abcdef23:2:300003",
+                bitmap: "300003",
+                minted_address: "bc1qstu901vwx234yza567bcd890efg123hij456klm",
+                div: "5000",
+                dim: "2048x2048",
+                date_created: "2024-01-23 16:30:45",
+                pattern: "5000tx-block",
+                txList: generateLargeTransactionList(5000), // 5000 transactions
+                transaction_count: 5000
+            },
+            {
+                tick: "ULTRA",
+                block_height: 856000,
+                tx_hash: "456789012abcdef3456789012abcdef3456789012abcdef3456789012abcdef34",
+                satpoint: "456789012abcdef3456789012abcdef3456789012abcdef3456789012abcdef34:0:400004",
+                bitmap: "400004",
+                minted_address: "bc1qvwx234yza567bcd890efg123hij456klm789nop",
+                div: "7500",
+                dim: "4096x4096",
+                date_created: "2024-01-24 11:20:12",
+                pattern: "7500tx-block",
+                txList: generateLargeTransactionList(7500), // 7500 transactions
+                transaction_count: 7500
+            },
+            {
+                tick: "EXTREME",
+                block_height: 857000,
+                tx_hash: "567890123abcdef4567890123abcdef4567890123abcdef4567890123abcdef45",
+                satpoint: "567890123abcdef4567890123abcdef4567890123abcdef4567890123abcdef45:1:500005",
+                bitmap: "500005",
+                minted_address: "bc1qyza567bcd890efg123hij456klm789nop012qrs",
+                div: "10000",
+                dim: "8192x8192",
+                date_created: "2024-01-25 09:55:33",
+                pattern: "10000tx-block",
+                txList: generateLargeTransactionList(10000), // 10,000 transactions
+                transaction_count: 10000
+            }
+        ];
+
+        // Function to generate large transaction lists with realistic Bitcoin values
+        function generateLargeTransactionList(count) {
+            const transactions = [];
+            const baseValues = [
+                1000000,    // 0.01 BTC
+                5000000,    // 0.05 BTC
+                10000000,   // 0.1 BTC
+                25000000,   // 0.25 BTC
+                50000000,   // 0.5 BTC
+                100000000,  // 1 BTC
+                200000000,  // 2 BTC
+                500000000,  // 5 BTC
+                1000000000, // 10 BTC
+                2100000000  // 21 BTC (max realistic)
+            ];
+            
+            for (let i = 0; i < count; i++) {
+                // Create varied transaction sizes using different patterns
+                let value;
+                const rand = Math.random();
+                
+                if (rand < 0.4) {
+                    // 40% small transactions (0.001 - 0.1 BTC)
+                    value = Math.floor(Math.random() * 10000000) + 100000;
+                } else if (rand < 0.7) {
+                    // 30% medium transactions (0.1 - 1 BTC)
+                    value = Math.floor(Math.random() * 90000000) + 10000000;
+                } else if (rand < 0.9) {
+                    // 20% large transactions (1 - 5 BTC)
+                    value = Math.floor(Math.random() * 400000000) + 100000000;
+                } else {
+                    // 10% very large transactions (5 - 21 BTC)
+                    value = Math.floor(Math.random() * 1600000000) + 500000000;
+                }
+                
+                transactions.push(value);
+            }
+            
+            return transactions;
+        }
+
+        let currentBitmaps = testBitmaps;
+        let selectedBitmap = null;
+        let filteredBitmaps = testBitmaps;        // Current filter state
+        const currentFilters = {
+            search: '',
+            sortBy: 'bitmap',
+            blockMin: '',
+            blockMax: ''
+        };
+
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type} show`;
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }        function updateSearchStats(totalCount, displayCount, query = '') {
+            const resultsText = document.getElementById('resultsText');
+            const resultsDetails = document.getElementById('resultsDetails');
+            
+            if (!resultsText || !resultsDetails) return;
+
+            let queryText = query ? ` for "${query}"` : '';
+            let detailsHtml = '';
+            const percentage = totalCount > 0 ? Math.round((displayCount / totalCount) * 100) : 0;
+            
+            // Enhanced block number search feedback
+            if (query && /^\d+$/.test(query)) {
+                const blockNum = parseInt(query);
+                const exactMatches = filteredBitmaps.filter(bitmap => bitmap.block_height === blockNum);
+                const partialMatches = filteredBitmaps.filter(bitmap => 
+                    bitmap.block_height !== blockNum && 
+                    bitmap.block_height.toString().includes(query)
+                );
+                
+                if (exactMatches.length > 0) {
+                    queryText = ` in block ${blockNum}`;
+                    detailsHtml = `
+                        <span>🎯 ${exactMatches.length} exact block match${exactMatches.length > 1 ? 'es' : ''}</span>
+                        <span>⛏️ Block ${blockNum}</span>
+                        <span>🎨 Click Any Bitmap to Explore</span>
+                        <span>⏰ ${new Date().toLocaleTimeString()}</span>
+                    `;
+                } else if (partialMatches.length > 0) {
+                    queryText = ` containing "${query}"`;
+                    detailsHtml = `
+                        <span>🔍 ${partialMatches.length} partial block match${partialMatches.length > 1 ? 'es' : ''}</span>
+                        <span>📊 ${percentage}% Match</span>
+                        <span>🎨 Click Any Bitmap to Explore</span>
+                        <span>⏰ ${new Date().toLocaleTimeString()}</span>
+                    `;
+                } else {
+                    queryText = ` for block "${query}"`;
+                    detailsHtml = `
+                        <span>❌ No matches found</span>
+                        <span>💡 Try: 850123, 851000, 855000</span>
+                        <span>🔍 Search Ready</span>
+                        <span>⏰ ${new Date().toLocaleTimeString()}</span>
+                    `;
+                }
+            } else {
+                detailsHtml = `
+                    <span>🎯 ${percentage}% Match</span>
+                    <span>🔍 Interactive Search Ready</span>
+                    <span>🎨 Click Any Bitmap to Explore</span>
+                    <span>⏰ Updated: ${new Date().toLocaleTimeString()}</span>
+                `;
+            }
+            
+            resultsText.textContent = `📊 Showing ${displayCount} of ${totalCount} bitmaps${queryText}`;
+            resultsDetails.innerHTML = detailsHtml;
+        }
+
+        function shortenHash(hash, length = 8) {
+            return hash.length > length ? hash.substring(0, length) + '...' : hash;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }        function displayBitmaps(bitmaps) {
+            const container = document.getElementById('bitmapContainer');
+            container.innerHTML = '';
+
+            if (bitmaps.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #a0a0a0; font-size: 18px; margin: 50px 0;">No bitmaps found matching your search criteria.</div>';
+                updateSearchStats(testBitmaps.length, 0, currentFilters.search);
+                return;
+            }
+
+            updateSearchStats(testBitmaps.length, bitmaps.length, currentFilters.search);
+
+            bitmaps.forEach((bitmap, index) => {
+                const card = document.createElement('div');
+                card.className = 'bitmap-card';
+                card.style.animationDelay = `${index * 0.1}s`;
+                card.onclick = () => openBitmapVisualization(bitmap);
+
+                // Add result number
+                const resultNumber = index + 1;                card.innerHTML = `
+                    <div class="bitmap-header">
+                        <div class="bitmap-id">Bitmap #${bitmap.bitmap}</div>
+                    </div>
+                    <div class="bitmap-content">
+                        <div class="pattern-preview-container">
+                            <canvas class="pattern-preview" width="180" height="180"></canvas>
+                        </div>
+                    </div>
+                `;
+
+                container.appendChild(card);
+                
+                // Generate pattern preview after card is added to DOM
+                generatePatternPreview(bitmap, card.querySelector('.pattern-preview'));
+            });
+        }
+        
+        async function generatePatternPreview(bitmap, canvas) {
+            if (!canvas || !bitmap) return;
+            
+            const ctx = canvas.getContext('2d');
+            const size = 180; // Canvas size - updated to match card size
+            
+            // Clear canvas with black background
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+            
+            try {
+                // Load the correct Mondrian module from ordinals if not already loaded
+                if (typeof window.MondrianModule === 'undefined') {
+                    await loadMondrianModule();
+                }
+                  // Use the loaded module with bitmap's transaction data
+                if (window.MondrianModule && bitmap.txList && Array.isArray(bitmap.txList) && bitmap.txList.length > 0) {
+                    // Convert transaction values to proper square sizes using the module's method
+                    const sizes = bitmap.txList.map(value => 
+                        window.MondrianModule.getSquareSize(value)
+                    );
+                    
+                    // Create layout using the correct constructor
+                    const mondrian = new window.MondrianModule.MondrianLayout(sizes);
+                    
+                    // Add internal margin to fit within rounded container edges
+                    const margin = 10; // Internal margin to avoid clipping
+                    const availableSize = size - (margin * 2);
+                    
+                    // Calculate scaling to fit in preview canvas with margin
+                    const scale = Math.min(availableSize / mondrian.width, availableSize / mondrian.height);
+                    
+                    // Render each square with proper positioning and sizing
+                    mondrian.slots.forEach((slot, i) => {
+                        ctx.fillStyle = '#FFA500'; // More yellow/orange color
+                        ctx.fillRect(
+                            margin + (slot.position.x * scale),
+                            margin + (slot.position.y * scale),
+                            (slot.size - 0.5) * scale, // 0.5 margin as per the correct implementation
+                            (slot.size - 0.5) * scale
+                        );
+                    });
+                } else {
+                    // Show message if no pattern data
+                    ctx.fillStyle = '#FFA500';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('No Pattern', size/2, size/2);
+                }            } catch (error) {
+                console.warn('Pattern preview generation failed:', error);
+                // Simple fallback
+                ctx.fillStyle = '#FFA500';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Error', size/2, size/2);
+            }
+        }        // Load the correct Mondrian module from ordinals
+        async function loadMondrianModule() {
+            try {
+                // Fetch the original Mondrian module from ordinals
+                const moduleCode = await fetch('https://ordinals.com/content/55551557695dd82a2bda5ec3497684ec7cbb2cc1752ff5101accff1648666c3ai0')
+                    .then(r => r.text());
+                
+                // Create a dynamic import from the module code
+                const module = await import(URL.createObjectURL(new Blob([moduleCode], { type: 'application/javascript' })));
+                
+                // Store the module globally for reuse
+                window.MondrianModule = module;
+                
+                return module;
+            } catch (error) {
+                console.error('Failed to load Mondrian module:', error);
+                throw error;
+            }
+        }        // Render Mondrian layout to canvas (updated for correct implementation)        function renderMondrianToCanvas(ctx, mondrian, scale, canvasSize) {
+            // Fill background with white (matching bitmaps.html)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvasSize, canvasSize);
+            
+            // Render each square with proper positioning, sizing, and colors (matching bitmaps.html exactly)
+            mondrian.slots.forEach((slot, index) => {
+                const x = slot.position.x * scale;
+                const y = slot.position.y * scale;
+                const slotSize = slot.size * scale;
+                
+                // Use same color generation logic as bitmaps.html
+                const hue = ((slot.position.x * 73 + slot.position.y * 97 + slot.size * 139) % 360);
+                const color = `hsl(${hue}, 70%, 50%)`;
+                
+                // Fill square with transaction color
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, slotSize, slotSize);
+                
+                // Draw border (matching bitmaps.html)
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, slotSize, slotSize);
+            });
+        }
+
+        function openBitmapVisualization(bitmap) {
+            selectedBitmap = bitmap;
+            
+            // Update modal title
+            document.getElementById('modalTitle').textContent = `Bitmap #${bitmap.bitmap} - ${bitmap.pattern}`;
+              // Update modal pattern info
+            const modalPatternInfo = document.getElementById('modalPatternInfo');
+            modalPatternInfo.innerHTML = `
+                <div style="margin-bottom: 10px;"><strong>📄 Bitmap ID:</strong> #${bitmap.bitmap}</div>
+                <div style="margin-bottom: 10px;"><strong>🎯 Pattern:</strong> ${bitmap.pattern || 'N/A'}</div>
+                <div style="margin-bottom: 10px;"><strong>🎨 Tick:</strong> ${bitmap.tick}</div>
+                <div style="margin-bottom: 10px;"><strong>📏 Block Height:</strong> ${bitmap.block_height?.toLocaleString()}</div>
+                <div style="margin-bottom: 10px;"><strong>🏠 Address:</strong> <span style="font-family: monospace; font-size: 11px;">${bitmap.minted_address || 'N/A'}</span></div>
+                <div style="margin-bottom: 10px;"><strong>📅 Created:</strong> ${formatDate(bitmap.date_created)}</div>
+                <div style="margin-bottom: 10px;"><strong>⚙️ Dimensions:</strong> ${bitmap.dim}</div>
+                <div style="margin-bottom: 10px;"><strong>🔢 Divisibility:</strong> ${bitmap.div}</div>
+                
+                <!-- Collapsible Transactions Section -->
+                <div style="margin-bottom: 15px;">
+                    <div onclick="toggleModalTransactions()" style="
+                        cursor: pointer;
+                        padding: 8px 12px;
+                        background: rgba(0, 255, 255, 0.1);
+                        border: 1px solid rgba(0, 255, 255, 0.3);
+                        border-radius: 8px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        transition: all 0.3s ease;
+                        margin-bottom: 10px;
+                    " onmouseover="this.style.background='rgba(0, 255, 255, 0.2)'" onmouseout="this.style.background='rgba(0, 255, 255, 0.1)'">
+                        <span id="modalTransactionsIcon" style="transition: transform 0.3s ease;">▶️</span>
+                        <strong>📊 Transactions (${bitmap.transaction_count || bitmap.txList?.length || 'N/A'})</strong>
+                    </div>
+                    <div id="modalTransactionsContent" style="
+                        max-height: 0;
+                        overflow: hidden;
+                        transition: max-height 0.3s ease, opacity 0.3s ease;
+                        opacity: 0;
+                        background: rgba(255, 255, 255, 0.03);
+                        border-radius: 8px;
+                        padding: 0 15px;
+                    ">
+                        <div style="padding: 15px 0;">
+                            <div style="margin-bottom: 8px;"><strong>Transaction Values:</strong></div>
+                            <div style="
+                                font-family: monospace; 
+                                font-size: 11px; 
+                                line-height: 1.4;
+                                background: rgba(0, 0, 0, 0.3);
+                                padding: 10px;
+                                border-radius: 6px;
+                                max-height: 120px;
+                                overflow-y: auto;
+                                word-break: break-all;
+                            ">${bitmap.txList ? bitmap.txList.join(', ') : 'N/A'}</div>
+                            <div style="margin-top: 8px; color: #888; font-size: 11px;">
+                                💡 Values shown in satoshis (1 BTC = 100,000,000 satoshis)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Show modal
+            const modal = document.getElementById('bitmapModal');
+            modal.classList.add('show');
+            
+            // Generate the pattern in the modal
+            generateModalPattern();
+            
+            showNotification(`🎨 Opened Bitmap #${bitmap.bitmap}`, 'success');
+        }        function closeModal() {
+            const modal = document.getElementById('bitmapModal');
+            modal.classList.remove('show');
+            selectedBitmap = null;
+            showNotification('✅ Modal closed', 'success');
+        }
+
+        function toggleModalTransactions() {
+            const icon = document.getElementById('modalTransactionsIcon');
+            const content = document.getElementById('modalTransactionsContent');
+            
+            if (content.style.maxHeight === '0px' || content.style.maxHeight === '') {
+                // Expand
+                content.style.maxHeight = '200px';
+                content.style.opacity = '1';
+                content.style.padding = '0 15px';
+                icon.style.transform = 'rotate(90deg)';
+                icon.textContent = '🔽';
+            } else {
+                // Collapse
+                content.style.maxHeight = '0';
+                content.style.opacity = '0';
+                content.style.padding = '0 15px';
+                icon.style.transform = 'rotate(0deg)';
+                icon.textContent = '▶️';
+            }
+        }async function generateModalPattern() {
+            if (!selectedBitmap) return;
+
+            const canvas = document.getElementById('modalCanvas');
+            const ctx = canvas.getContext('2d');
+            const canvasSize = 400;            try {
+                // Create Mondrian layout using the exact same logic as bitmaps.html
+                const mondrian = new MondrianLayout(selectedBitmap.txList);
+                
+                // Custom rendering for modal with proper colors (matching bitmaps.html exactly)
+                const cellSize = Math.min(400 / Math.max(mondrian.width, mondrian.height), 10);
+                
+                // Clear canvas with white background (matching bitmaps.html)
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, 400, 400);
+                
+                // Draw transaction squares with transaction-specific colors (matching bitmaps.html exactly)
+                mondrian.slots.forEach((slot, index) => {
+                    const x = slot.position.x * cellSize;
+                    const y = slot.position.y * cellSize;
+                    const slotSize = slot.size * cellSize;
+                    
+                    // Use transaction-specific color if available
+                    let color = '#00aaff'; // Default blue
+                    if (selectedBitmap.transactions && selectedBitmap.transactions[index]) {
+                        color = selectedBitmap.transactions[index].color || `hsl(${(selectedBitmap.transactions[index].blockHeight % 360)}, 70%, 50%)`;
+                    } else {
+                        // Generate color based on slot properties (matching bitmaps.html exactly)
+                        const hue = ((slot.position.x * 73 + slot.position.y * 97 + slot.size * 139) % 360);
+                        color = `hsl(${hue}, 70%, 50%)`;
+                    }
+                    
+                    // Fill square with transaction color
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y, slotSize, slotSize);
+                    
+                    // Draw border (matching bitmaps.html exactly)
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, slotSize, slotSize);
+                });
+            } catch (error) {
+                console.error('Error generating modal pattern:', error);
+                
+                // Error fallback
+                ctx.fillStyle = '#FFA500';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Pattern generation error', canvasSize/2, canvasSize/2 - 10);
+                ctx.fillText('Check console for details', canvasSize/2, canvasSize/2 + 10);
+            }
+            
+            showNotification('🎨 Pattern regenerated!', 'success');
+        }
+
+        function downloadModalCanvas() {
+            if (!selectedBitmap) return;
+            
+            const canvas = document.getElementById('modalCanvas');
+            const link = document.createElement('a');
+            link.download = `bitmap-${selectedBitmap.bitmap}-mondrian.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+            
+            showNotification('💾 Mondrian pattern downloaded!', 'success');
+        }
+
+        function downloadModalInfo() {
+            if (!selectedBitmap) return;
+            
+            const info = `Bitmap #${selectedBitmap.bitmap} - Mondrian Pattern
+=======================================================
+Pattern String: ${selectedBitmap.pattern}
+Transaction Sizes: ${selectedBitmap.txList ? selectedBitmap.txList.join(', ') : 'N/A'}
+Tick: ${selectedBitmap.tick}
+Block Height: ${selectedBitmap.block_height}
+Transaction Hash: ${selectedBitmap.tx_hash}
+Satpoint: ${selectedBitmap.satpoint}
+Minted Address: ${selectedBitmap.minted_address}
+Divisibility: ${selectedBitmap.div}
+Dimensions: ${selectedBitmap.dim}
+Date Created: ${selectedBitmap.date_created}
+
+Generated: ${new Date().toLocaleString()}
+Algorithm: MondrianLayout (Exact Implementation)
+`;
+            
+            const blob = new Blob([info], { type: 'text/plain' });
+            const link = document.createElement('a');
+            link.download = `bitmap-${selectedBitmap.bitmap}-info.txt`;
+            link.href = URL.createObjectURL(blob);
+            link.click();
+            
+            showNotification('📄 Bitmap info downloaded!', 'success');
+        }
+        
+        function generatePattern() {
+            if (!selectedBitmap) return;
+
+            const canvas = document.getElementById('bitmapCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            try {
+                // Check if Mondrian functions are available
+                if (typeof MondrianLayout === 'undefined' || typeof renderMondrianToCanvas === 'undefined') {
+                    throw new Error('Mondrian.js not loaded or functions not available');
+                }
+                
+                // Use the real Mondrian implementation with the bitmap's transaction pattern
+                const txList = selectedBitmap.txList || [];
+                if (txList.length === 0) {
+                    throw new Error('No transaction pattern data available');
+                }
+                
+                const mondrian = new MondrianLayout(txList);
+                
+                // Calculate appropriate cell size based on canvas and grid size
+                const { width, height } = mondrian.getSize();
+                const cellSizeX = Math.floor(canvas.width / width);
+                const cellSizeY = Math.floor(canvas.height / height);
+                const cellSize = Math.max(1, Math.min(cellSizeX, cellSizeY, 30)); // Max 30px per cell
+                
+                // Render using the Mondrian library
+                renderMondrianToCanvas(mondrian, canvas, {
+                    cellSize: cellSize,
+                    strokeWidth: 2,
+                    backgroundColor: '#ffffff',
+                    strokeColor: '#000000',
+                    showEmptySpaces: true
+                });
+                
+                // Update pattern info
+                document.getElementById('patternType').textContent = 'Mondrian Layout (Real Algorithm)';
+                document.getElementById('patternDimensions').textContent = `${mondrian.width}x${mondrian.height} grid (${mondrian.slots.length} squares)`;
+                document.getElementById('patternColors').textContent = 'Algorithmic HSL colors';
+                
+            } catch (error) {
+                console.error('Error generating Mondrian pattern:', error);
+                
+                // Fallback to a simple pattern visualization
+                ctx.fillStyle = '#f8f9fa';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw pattern representation using txList
+                if (selectedBitmap.txList && selectedBitmap.txList.length > 0) {
+                    const txList = selectedBitmap.txList;
+                    const colors = ['#ff6b35', '#f7931e', '#28a745', '#007bff', '#6f42c1', '#e83e8c'];
+                    
+                    // Simple grid representation
+                    const gridSize = Math.ceil(Math.sqrt(txList.length));
+                    const cellSize = Math.min(canvas.width, canvas.height) / gridSize;
+                    
+                    txList.forEach((size, index) => {
+                        const row = Math.floor(index / gridSize);
+                        const col = index % gridSize;
+                        const x = col * cellSize;
+                        const y = row * cellSize;
+                        
+                        // Scale cell size based on transaction size
+                        const scaledSize = cellSize * (size / 10);
+                        const offset = (cellSize - scaledSize) / 2;
+                        
+                        ctx.fillStyle = colors[index % colors.length];
+                        ctx.fillRect(x + offset, y + offset, scaledSize, scaledSize);
+                        
+                        // Add border
+                        ctx.strokeStyle = '#000000';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(x + offset, y + offset, scaledSize, scaledSize);
+                        
+                        // Add size label
+                        ctx.fillStyle = '#000000';
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(size.toString(), x + cellSize/2, y + cellSize/2 + 4);
+                    });
+                }
+                
+                // Error message
+                ctx.fillStyle = '#dc3545';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Mondrian.js not available - showing pattern preview', canvas.width / 2, canvas.height - 20);
+                
+                document.getElementById('patternType').textContent = 'Simple Pattern (Fallback)';
+                document.getElementById('patternDimensions').textContent = `${selectedBitmap.txList?.length || 0} transactions`;
+                document.getElementById('patternColors').textContent = 'Fixed color palette';
+            }
+            
+            document.getElementById('generatedTime').textContent = new Date().toLocaleString();
+            showNotification('🎨 Pattern visualization generated!', 'success');
+        }
+
+        function downloadCanvas() {
+            if (!selectedBitmap) return;
+            
+            const canvas = document.getElementById('bitmapCanvas');
+            const link = document.createElement('a');
+            link.download = `bitmap-${selectedBitmap.bitmap}-art.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+            
+            showNotification('💾 Image downloaded successfully!', 'success');
+        }
+
+        function downloadBitmapInfo() {
+            if (!selectedBitmap) return;
+            
+            const info = `Bitmap Information
+==================
+Bitmap ID: #${selectedBitmap.bitmap}
+Tick: ${selectedBitmap.tick}
+Block Height: ${selectedBitmap.block_height}
+Transaction Hash: ${selectedBitmap.tx_hash}
+Satpoint: ${selectedBitmap.satpoint}
+Minted Address: ${selectedBitmap.minted_address}
+Divisibility: ${selectedBitmap.div}
+Dimensions: ${selectedBitmap.dim}
+Date Created: ${selectedBitmap.date_created}
+Downloaded: ${new Date().toLocaleString()}
+`;
+            
+            const blob = new Blob([info], { type: 'text/plain' });
+            const link = document.createElement('a');
+            link.download = `bitmap-${selectedBitmap.bitmap}-info.txt`;
+            link.href = URL.createObjectURL(blob);
+            link.click();
+            
+            showNotification('📄 Bitmap info downloaded!', 'success');
+        }        function performSearch() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
+            currentFilters.search = searchTerm;
+            applyFilters();
+            
+            if (searchTerm) {
+                // Check if search term is a potential block number
+                const isBlockNumber = /^\d+$/.test(searchTerm);
+                if (isBlockNumber) {
+                    const blockNum = parseInt(searchTerm);
+                    const exactMatches = filteredBitmaps.filter(bitmap => bitmap.block_height === blockNum);
+                    if (exactMatches.length > 0) {
+                        showNotification(`🎯 Found ${exactMatches.length} bitmap(s) in block ${blockNum}`, 'success');
+                    } else {
+                        const partialMatches = filteredBitmaps.filter(bitmap => 
+                            bitmap.block_height.toString().includes(searchTerm)
+                        );
+                        if (partialMatches.length > 0) {
+                            showNotification(`🔍 Found ${partialMatches.length} bitmap(s) with block numbers containing "${searchTerm}"`, 'info');
+                        } else {
+                            showNotification(`❌ No bitmaps found for block number "${searchTerm}"`, 'warning');
+                        }
+                    }
+                } else {
+                    showNotification(`🔍 Searching for "${searchTerm}"... Found ${filteredBitmaps.length} result(s)`, 'info');
+                }
+            }
+        }        function clearSearch() {
+            document.getElementById('searchBox').value = '';
+            currentFilters.search = '';
+            applyFilters();
+            showNotification('🧹 Search cleared', 'success');
+        }
+
+        function quickSearchBlock(blockNumber) {
+            document.getElementById('searchBox').value = blockNumber;
+            currentFilters.search = blockNumber;
+            applyFilters();
+            
+            const exactMatches = filteredBitmaps.filter(bitmap => bitmap.block_height === parseInt(blockNumber));
+            if (exactMatches.length > 0) {
+                showNotification(`🎯 Found ${exactMatches.length} bitmap(s) in block ${blockNumber}`, 'success');
+            } else {
+                showNotification(`❌ No bitmaps found in block ${blockNumber}`, 'warning');
+            }
+        }function applyFilters() {
+            let filtered = [...testBitmaps];
+
+            // Apply search filter with enhanced block number search
+            if (currentFilters.search) {
+                const searchTerm = currentFilters.search.toLowerCase();
+                const isBlockNumber = /^\d+$/.test(searchTerm);
+                
+                if (isBlockNumber) {
+                    // Prioritize exact block number matches, then partial matches
+                    const blockNum = parseInt(searchTerm);
+                    const exactMatches = filtered.filter(bitmap => bitmap.block_height === blockNum);
+                    const partialMatches = filtered.filter(bitmap => 
+                        bitmap.block_height !== blockNum && 
+                        bitmap.block_height.toString().includes(searchTerm)
+                    );
+                    
+                    // If exact matches exist, show them first, otherwise show partial matches
+                    if (exactMatches.length > 0) {
+                        filtered = exactMatches;
+                    } else {
+                        filtered = partialMatches;
+                    }
+                    
+                    // Also include other fields that might match the number
+                    const otherMatches = testBitmaps.filter(bitmap => 
+                        !filtered.includes(bitmap) && (
+                            bitmap.tick.toLowerCase().includes(searchTerm) ||
+                            bitmap.bitmap.includes(searchTerm) ||
+                            bitmap.tx_hash.toLowerCase().includes(searchTerm) ||
+                            bitmap.minted_address.toLowerCase().includes(searchTerm)
+                        )
+                    );
+                    filtered = [...filtered, ...otherMatches];
+                } else {
+                    // Regular text search
+                    filtered = filtered.filter(bitmap =>
+                        bitmap.tick.toLowerCase().includes(searchTerm) ||
+                        bitmap.bitmap.includes(searchTerm) ||
+                        bitmap.block_height.toString().includes(searchTerm) ||
+                        bitmap.tx_hash.toLowerCase().includes(searchTerm) ||
+                        bitmap.minted_address.toLowerCase().includes(searchTerm)                    );
+                }
+            }
+
+            // Apply block height range filter
+            if (currentFilters.blockMin) {
+                filtered = filtered.filter(bitmap => bitmap.block_height >= parseInt(currentFilters.blockMin));
+            }
+            if (currentFilters.blockMax) {
+                filtered = filtered.filter(bitmap => bitmap.block_height <= parseInt(currentFilters.blockMax));
+            }
+
+            // Apply sorting
+            filtered.sort((a, b) => {
+                switch (currentFilters.sortBy) {
+                    case 'bitmap':
+                        return parseInt(a.bitmap) - parseInt(b.bitmap);
+                    case 'bitmap-desc':
+                        return parseInt(b.bitmap) - parseInt(a.bitmap);
+                    case 'block-height':
+                        return a.block_height - b.block_height;
+                    case 'block-height-desc':
+                        return b.block_height - a.block_height;                    case 'date':
+                        return new Date(a.date_created) - new Date(b.date_created);
+                    case 'date-desc':
+                        return new Date(b.date_created) - new Date(a.date_created);
+                    default:
+                        return 0;
+                }
+            });
+
+            filteredBitmaps = filtered;
+            displayBitmaps(filtered);
+        }        function resetFilters() {
+            // Reset all filters
+            currentFilters.search = '';
+            currentFilters.sortBy = 'bitmap';
+            currentFilters.blockMin = '';
+            currentFilters.blockMax = '';
+
+            // Reset form elements
+            document.getElementById('searchBox').value = '';
+            document.getElementById('sortBy').value = 'bitmap';
+            document.getElementById('minBlock').value = '';
+            document.getElementById('maxBlock').value = '';
+
+            // Apply filters (which will show all bitmaps)
+            applyFilters();
+            showNotification('🔄 All filters reset', 'success');
+        }
+
+        function searchBitmaps() {
+            performSearch();
+        }
+
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }        // Event listeners
+        const debouncedSearch = debounce(performSearch, 300);
+        document.getElementById('searchBox').addEventListener('input', debouncedSearch);        // Toggle function for collapsible transaction filters
+        function toggleTransactionFilters() {
+            const header = document.querySelector('.filter-section-header');
+            const content = document.getElementById('transactionFilters');
+            
+            header.classList.toggle('collapsed');
+            content.classList.toggle('collapsed');
+        }
+
+        // Add event listeners for filters
+        const sortBy = document.getElementById('sortBy');
+        if (sortBy) {
+            sortBy.addEventListener('change', function() {
+                currentFilters.sortBy = this.value;
+                applyFilters();
+            });
+        }        // Range filter event listeners
+        const rangeFilters = ['minBlock', 'maxBlock'];
+        rangeFilters.forEach(filterId => {
+            const element = document.getElementById(filterId);
+            if (element) {
+                element.addEventListener('input', debounce(function() {
+                    // Map element IDs to filter property names
+                    const filterMap = {
+                        'minBlock': 'blockMin',
+                        'maxBlock': 'blockMax'
+                    };
+                    currentFilters[filterMap[filterId]] = this.value;
+                    applyFilters();
+                }, 500));
+            }
+        });// Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('bitmapModal');
+                if (modal.classList.contains('show')) {
+                    closeModal();
+                } else if (selectedBitmap) {
+                    closeVisualization();
+                } else {
+                    clearSearch();
+                }
+            }
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                document.getElementById('searchBox').focus();
+            }
+            if (e.ctrlKey && e.key === 'b') {
+                e.preventDefault();
+                const searchBox = document.getElementById('searchBox');
+                searchBox.focus();
+                searchBox.placeholder = '🔍 Enter block number (e.g. 850123, 851000, 855000)...';
+                showNotification('💡 Block search mode: Enter a block number', 'info');
+                setTimeout(() => {
+                    searchBox.placeholder = '🔍 Search by block number, bitmap #, tick, transaction, or address... (e.g. 830000)';
+                }, 3000);
+            }
+            if (e.ctrlKey && e.key === 'r') {
+                e.preventDefault();
+                resetFilters();
+            }
+            if (e.key === 'Enter' && document.activeElement === document.getElementById('searchBox')) {
+                performSearch();
+            }
+        });
+
+        // Modal click outside to close
+        document.addEventListener('click', function(e) {
+            const modal = document.getElementById('bitmapModal');
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        // Scroll to top button
+        window.addEventListener('scroll', function() {
+            const scrollTop = document.getElementById('scrollToTop');
+            if (window.pageYOffset > 300) {
+                scrollTop.classList.add('show');
+            } else {
+                scrollTop.classList.remove('show');            }
+        });
+        
+        // Initialize the page
+        window.addEventListener('DOMContentLoaded', function() {
+            applyFilters(); // This will display all bitmaps and update stats
+            showNotification('🎉 Demo loaded with 12 sample bitmaps including large blocks!', 'success');
+        });
+    </script>
+</body>
+</html>

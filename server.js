@@ -236,18 +236,11 @@ function setupDatabaseSchema(db, callback) {
         )`, [], () => {
             console.log('Bitmaps table created or already exists');
             checkCompletion();
-        });
-
-        // Create bitmap_patterns table for storing transaction pattern arrays
+        });        // Create bitmap_patterns table for storing simple transaction size strings
         safeDbRun(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bitmap_number INTEGER NOT NULL,
-            block_height INTEGER NOT NULL,
-            pattern_data TEXT NOT NULL,
-            transaction_count INTEGER NOT NULL,
-            generated_at INTEGER NOT NULL,
-            FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number),
-            UNIQUE(bitmap_number, block_height)
+            bitmap_number INTEGER PRIMARY KEY,
+            pattern_string TEXT NOT NULL,
+            FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number)
         )`, [], () => {
             console.log('Bitmap patterns table created or already exists');
             checkCompletion();

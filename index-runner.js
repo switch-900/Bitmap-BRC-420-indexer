@@ -135,16 +135,41 @@ async function getInscriptionContentCached(inscriptionId) {
     const cached = apiCache.get(cacheKey);
     if (cached !== null) return cached;
     
-    try {
-        const response = await axios.get(`${API_URL}/content/${inscriptionId}`, {
-            headers: { 'Accept': 'text/plain' },
-            responseType: 'text'        });        const content = response.data || '';
-        apiCache.set(cacheKey, content);
-        return content;
-    } catch (error) {
-        logger.error(`Error getting inscription content for ${inscriptionId}:`, { message: error.message });
-        return '';
+    // Try multiple API endpoints for better content fetching
+    const endpoints = [
+        `${API_URL}/content/${inscriptionId}`,           // Primary endpoint
+        `${API_URL}/inscription/${inscriptionId}/content`, // Alternative path
+        `https://ordinals.com/content/${inscriptionId}`,   // Explicit ordinals.com
+    ];
+    
+    for (const endpoint of endpoints) {
+        try {
+            processingLogger.debug(`Trying content endpoint: ${endpoint.substring(0, 50)}...`);
+            const response = await axios.get(endpoint, {
+                headers: { 
+                    'Accept': 'text/plain, application/json, */*',
+                    'User-Agent': 'BRC-420-Indexer/1.0'
+                },
+                responseType: 'text',
+                timeout: 15000
+            });
+            
+            const content = response.data || '';
+            if (content && content.length > 0) {
+                processingLogger.debug(`Content fetched successfully (${content.length} chars): ${content.substring(0, 100)}...`);
+                apiCache.set(cacheKey, content);
+                return content;
+            }
+        } catch (error) {
+            processingLogger.debug(`Endpoint failed: ${error.message}`);
+            continue; // Try next endpoint
+        }
     }
+    
+    // If all endpoints fail, log the issue but return empty string to continue processing
+    processingLogger.warn(`Could not fetch content for inscription ${inscriptionId} from any endpoint`);
+    apiCache.set(cacheKey, '');
+    return '';
 }
 
 async function getInscriptionDetailsCached(inscriptionId) {
@@ -1018,76 +1043,111 @@ function isValidParcelFormat(content) {
     return parcelRegex.test(content.trim());
 }
 
-// Helper function to log mint detection stats
-function logMintDetectionStats(blockHeight, inscriptions) {
-    let potentialMints = 0;
-    let validFormats = 0;
-    let deployInscriptions = 0;
-    
-    for (const inscriptionId of inscriptions) {
-        // This is just for stats, don't actually process
-        try {
-            // We can't easily check content here without API calls, but we can log the attempt
-            processingLogger.debug(`Checking inscription ${inscriptionId} in block ${blockHeight}`);
-        } catch (error) {
-            // Silent catch for stats
+// DEBUGGING: Comprehensive content analysis function
+function analyzeInscriptionContent(inscriptionId, content, blockHeight) {
+    const analysis = {
+        inscriptionId,
+        blockHeight,
+        contentLength: content ? content.length : 0,
+        isEmpty: !content || content.length === 0,
+        contentPreview: content ? content.substring(0, 200) : 'EMPTY',
+        patterns: {
+            brc420Deploy: false,
+            brc420Mint: false,
+            hasBrc420: false,
+            isJson: false,
+            startsWithSlash: false,
+            containsBitmap: false
         }
+    };
+
+    if (content && content.length > 0) {
+        // Check for BRC-420 patterns
+        analysis.patterns.brc420Deploy = content.startsWith('{"p":"brc-420","op":"deploy"');
+        analysis.patterns.brc420Mint = content.trim().startsWith('/content/');
+        analysis.patterns.hasBrc420 = content.includes('brc-420') || content.includes('"p":"brc-420"');
+        analysis.patterns.isJson = content.trim().startsWith('{') && content.trim().endsWith('}');
+        analysis.patterns.startsWithSlash = content.trim().startsWith('/');
+        analysis.patterns.containsBitmap = content.includes('.bitmap');
+
+        // Check for alternative BRC-420 patterns
+        if (analysis.patterns.hasBrc420 && !analysis.patterns.brc420Deploy) {
+            analysis.alternativePattern = true;
+            analysis.alternativeContent = content.substring(0, 300);
+        }
+
+        // Log detailed analysis for potential BRC-420 content
+        if (analysis.patterns.hasBrc420 || analysis.patterns.brc420Deploy || analysis.patterns.brc420Mint) {
+            processingLogger.info(`🔍 BRC-420 Content Analysis for ${inscriptionId}:`);
+            processingLogger.info(`   Block: ${blockHeight}, Length: ${analysis.contentLength}`);
+            processingLogger.info(`   Deploy: ${analysis.patterns.brc420Deploy}`);
+            processingLogger.info(`   Mint: ${analysis.patterns.brc420Mint}`);
+            processingLogger.info(`   Has BRC-420: ${analysis.patterns.hasBrc420}`);
+            processingLogger.info(`   Content: "${analysis.contentPreview}"`);
+        }
+    } else {
+        processingLogger.warn(`⚠️  Empty content for inscription ${inscriptionId} in block ${blockHeight}`);
     }
+
+    return analysis;
+}
+
+// DEBUGGING: Track content fetching statistics
+let contentStats = {
+    total: 0,
+    empty: 0,
+    brc420Deploy: 0,
+    brc420Mint: 0,
+    brc420Potential: 0,
+    lastReset: Date.now()
+};
+
+function updateContentStats(analysis) {
+    contentStats.total++;
+    if (analysis.isEmpty) contentStats.empty++;
+    if (analysis.patterns.brc420Deploy) contentStats.brc420Deploy++;
+    if (analysis.patterns.brc420Mint) contentStats.brc420Mint++;
+    if (analysis.patterns.hasBrc420) contentStats.brc420Potential++;
+
+    // Log stats every 100 inscriptions
+    if (contentStats.total % 100 === 0) {
+        processingLogger.info(`📊 Content Analysis Stats (last 100): Empty: ${contentStats.empty}, BRC-420 Deploys: ${contentStats.brc420Deploy}, BRC-420 Mints: ${contentStats.brc420Mint}, Potential: ${contentStats.brc420Potential}`);
+        
+        // Reset counters
+        contentStats = {
+            total: 0,
+            empty: 0,
+            brc420Deploy: 0,
+            brc420Mint: 0,
+            brc420Potential: 0,
+            lastReset: Date.now()
+        };
+    }
+}
+
+// DEBUGGING: Sample content logger
+let sampleCount = 0;
+const MAX_SAMPLES = 50;
+
+function logSampleContent(inscriptionId, content, blockHeight) {
+    if (sampleCount >= MAX_SAMPLES) return;
     
-    processingLogger.info(`Block ${blockHeight} mint detection stats: ${inscriptions.length} total inscriptions to check`);
-}
-
-// Function to save or update block statistics
-async function saveBlockStats(blockHeight, totalTransactions, totalInscriptions = 0, deploysCount = 0, mintsCount = 0, bitmapsCount = 0, parcelsCount = 0) {
-    return new Promise((resolve, reject) => {
-        db.run(`
-            INSERT OR REPLACE INTO block_stats 
-            (block_height, total_transactions, total_inscriptions, brc420_deploys, brc420_mints, bitmaps, parcels, processed_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-            blockHeight, 
-            totalTransactions, 
-            totalInscriptions, 
-            deploysCount, 
-            mintsCount, 
-            bitmapsCount, 
-            parcelsCount, 
-            Date.now()
-        ], function(err) {
-            if (err) {
-                logger.error(`Error saving block stats for block ${blockHeight}:`, { message: err.message });
-                reject(err);
-            } else {
-                logger.debug(`Block stats saved for block ${blockHeight}: ${totalTransactions} transactions, ${totalInscriptions} inscriptions`);
-                resolve(true);
-            }
-        });
-    });
-}
-
-// Function to update block stats incrementally (for adding counts during processing)
-async function updateBlockStats(blockHeight, field, increment = 1) {
-    return new Promise((resolve, reject) => {
-        const sql = `UPDATE block_stats SET ${field} = ${field} + ? WHERE block_height = ?`;
-        db.run(sql, [increment, blockHeight], function(err) {
-            if (err) {
-                logger.error(`Error updating block stats ${field} for block ${blockHeight}:`, { message: err.message });
-                reject(err);
-            } else {
-                resolve(true);
-            }
-        });
-    });
-}
-
-// Function to get block statistics
-async function getBlockStats(blockHeight) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT * FROM block_stats WHERE block_height = ?", [blockHeight], (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-        });
-    });
+    sampleCount++;
+    
+    const preview = content ? content.substring(0, 200) : 'EMPTY';
+    const isBrc420 = content && (content.includes('brc-420') || content.includes('"p":"brc-420"'));
+    const isMint = content && content.trim().startsWith('/content/');
+    const isBinary = content && (content.includes('\u0000') || content.charCodeAt(0) > 127);
+    
+    processingLogger.info(`🔎 SAMPLE ${sampleCount}/${MAX_SAMPLES} - Block ${blockHeight}`);
+    processingLogger.info(`   ID: ${inscriptionId}`);
+    processingLogger.info(`   Length: ${content ? content.length : 0} chars`);
+    processingLogger.info(`   Binary: ${isBinary}, BRC-420: ${isBrc420}, Mint: ${isMint}`);
+    processingLogger.info(`   Content: "${preview}"`);
+    
+    if (sampleCount >= MAX_SAMPLES) {
+        processingLogger.info(`📋 Sample collection complete. Check logs above to understand content patterns.`);
+    }
 }
 
 // Function to process inscription
@@ -1096,25 +1156,68 @@ async function processInscription(inscriptionId, blockHeight) {
         let content = await getInscriptionContentCached(inscriptionId);
         if (typeof content !== 'string') {
             content = JSON.stringify(content);
-        }processingLogger.info(`Processing inscription ${inscriptionId}: ${content.substring(0, 100)}...`);        // Check for BRC-420 deploy
-        if (content.startsWith('{"p":"brc-420","op":"deploy"')) {
-            const deployData = JSON.parse(content);
-            deployData.deployer_address = await getDeployerAddressCached(inscriptionId);
-            deployData.block_height = blockHeight;
-            deployData.timestamp = Date.now();
-            deployData.source_id = deployData.id;
+        }        processingLogger.debug(`Processing inscription ${inscriptionId}: content length=${content.length}, preview="${content.substring(0, 150)}..."`);
+          // DEBUGGING: Comprehensive content analysis
+        const analysis = analyzeInscriptionContent(inscriptionId, content, blockHeight);
+        updateContentStats(analysis);
+        
+        // DEBUGGING: Log sample content for analysis
+        logSampleContent(inscriptionId, content, blockHeight);
+          // Enhanced content analysis for debugging
+        if (!content || content.length === 0) {
+            processingLogger.warn(`Empty content for inscription ${inscriptionId} - skipping BRC-420 processing`);
+            return null;
+        }
+        
+        // Check if content is likely binary data (not text/JSON)
+        const isBinary = content.includes('\u0000') || content.includes('\uFFFD') || 
+                         (content.charCodeAt(0) === 0x89 && content.substring(1, 4) === 'PNG') ||
+                         (content.substring(0, 4) === '\xFF\xD8\xFF') || // JPEG
+                         (content.substring(0, 6) === 'GIF87a' || content.substring(0, 6) === 'GIF89a');
+        
+        if (isBinary) {
+            processingLogger.debug(`Binary content detected for inscription ${inscriptionId} - skipping BRC-420 processing`);
+            return null;
+        }
+        
+        // Check for BRC-420 deploy
+        const isBrc420Deploy = content.startsWith('{"p":"brc-420","op":"deploy"');
+        const isBrc420Mint = content.trim().startsWith('/content/');
+        const hasBrc420Content = content.includes('brc-420') || content.includes('"p":"brc-420"');
+        
+        processingLogger.debug(`BRC-420 pattern analysis for ${inscriptionId}: deploy=${isBrc420Deploy}, mint=${isBrc420Mint}, hasBrc420=${hasBrc420Content}`);
+          // Check for BRC-420 deploy
+        if (isBrc420Deploy) {
+            processingLogger.info(`BRC-420 deploy detected: ${inscriptionId}`);
+            
+            try {
+                const deployData = JSON.parse(content);
+                processingLogger.debug(`Deploy data parsed successfully: ${JSON.stringify(deployData)}`);
+                
+                deployData.deployer_address = await getDeployerAddressCached(inscriptionId);
+                deployData.block_height = blockHeight;
+                deployData.timestamp = Date.now();
+                deployData.source_id = deployData.id;
 
-            // Validate deploy according to BRC-420 spec
-            const isOwnershipValid = await validateDeployerOwnership(deployData);
-            const isUniqueDeployment = await validateUniqueDeployment(deployData.source_id);
+                processingLogger.debug(`Deploy validation starting for ${inscriptionId}: deployer=${deployData.deployer_address}`);
 
-            if (isOwnershipValid && isUniqueDeployment) {
-                await saveDeploy(deployData);
-                processingLogger.info(`BRC-420 deploy inscription saved: ${inscriptionId}`);
-                return { type: 'deploy' };            } else {
-                processingLogger.info(`BRC-420 deploy validation failed for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
-            }
-        } else if (content.trim().startsWith('/content/')) {
+                // Validate deploy according to BRC-420 spec
+                const isOwnershipValid = await validateDeployerOwnership(deployData);
+                const isUniqueDeployment = await validateUniqueDeployment(deployData.source_id);
+
+                processingLogger.info(`Deploy validation results for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
+
+                if (isOwnershipValid && isUniqueDeployment) {
+                    await saveDeploy(deployData);
+                    processingLogger.info(`✅ BRC-420 deploy inscription saved: ${inscriptionId}`);
+                    return { type: 'deploy' };
+                } else {
+                    processingLogger.warn(`❌ BRC-420 deploy validation failed for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
+                }
+            } catch (parseError) {
+                processingLogger.error(`Failed to parse BRC-420 deploy JSON for ${inscriptionId}: ${parseError.message}`);
+                processingLogger.debug(`Raw content that failed to parse: ${content}`);
+            }        } else if (content.trim().startsWith('/content/')) {
             // BRC-420 mint format: /content/<INSCRIPTION_ID>
             const trimmedContent = content.trim();
             processingLogger.info(`Potential BRC-420 mint detected: ${inscriptionId} -> ${trimmedContent}`);
@@ -1124,12 +1227,12 @@ async function processInscription(inscriptionId, blockHeight) {
             
             if (mintMatch) {
                 const sourceInscriptionId = mintMatch[1]; // Extract the inscription ID
-                processingLogger.info(`Valid BRC-420 mint format detected: ${inscriptionId} -> source: ${sourceInscriptionId}`);
+                processingLogger.info(`✅ Valid BRC-420 mint format detected: ${inscriptionId} -> source: ${sourceInscriptionId}`);
                 
                 const deployInscription = await getDeployById(sourceInscriptionId);
 
                 if (deployInscription) {
-                    processingLogger.info(`Found deploy for mint ${inscriptionId}: ${deployInscription.id}`);
+                    processingLogger.info(`✅ Found deploy for mint ${inscriptionId}: ${deployInscription.id}`);
                     const mintAddress = await getMintAddress(inscriptionId);
                     const transactionId = convertInscriptionIdToTxId(inscriptionId);
 
@@ -1138,6 +1241,8 @@ async function processInscription(inscriptionId, blockHeight) {
                         const isRoyaltyPaid = await validateMintRoyaltyPayment(deployInscription, mintAddress, transactionId);
                         const isMintValid = await validateMintData(sourceInscriptionId, deployInscription, mintAddress, transactionId);
                         const isContentTypeValid = await validateMintContentType(inscriptionId, sourceInscriptionId);
+
+                        processingLogger.info(`Mint validation results for ${inscriptionId}: royalty=${isRoyaltyPaid}, valid=${isMintValid}, contentType=${isContentTypeValid}`);
 
                         if (isRoyaltyPaid && isMintValid && isContentTypeValid) {
                             await saveMint({
@@ -1149,19 +1254,20 @@ async function processInscription(inscriptionId, blockHeight) {
                                 block_height: blockHeight,
                                 timestamp: Date.now()
                             });
-                            processingLogger.info(`BRC-420 mint saved: ${inscriptionId}`);
+                            processingLogger.info(`✅ BRC-420 mint saved: ${inscriptionId}`);
                             return { type: 'mint' };
                         } else {
-                            processingLogger.info(`BRC-420 mint validation failed for ${inscriptionId}: royalty=${isRoyaltyPaid}, valid=${isMintValid}, contentType=${isContentTypeValid}`);
+                            processingLogger.warn(`❌ BRC-420 mint validation failed for ${inscriptionId}: royalty=${isRoyaltyPaid}, valid=${isMintValid}, contentType=${isContentTypeValid}`);
                         }
                     } else {
-                        processingLogger.info(`Could not get mint address for ${inscriptionId}`);
+                        processingLogger.warn(`❌ Could not get mint address for ${inscriptionId}`);
                     }
                 } else {
-                    processingLogger.debug(`No deploy found for source inscription ${sourceInscriptionId}`);
-                }            } else {
+                    processingLogger.warn(`❌ No deploy found for source inscription ${sourceInscriptionId}`);
+                }
+            } else {
                 // Log potential mints that don't match the exact pattern
-                processingLogger.debug(`Content starts with /content/ but doesn't match BRC-420 pattern: ${inscriptionId} -> ${trimmedContent}`);
+                processingLogger.debug(`Content starts with /content/ but doesn't match BRC-420 mint pattern: ${inscriptionId} -> ${trimmedContent}`);
             }
         } else if (content.includes('.bitmap')) {
             // Check for parcel format first (more specific than bitmap format)
@@ -1654,9 +1760,7 @@ async function generateBitmapPattern(bitmapNumber, inscriptionId) {
         if (!txHistory || txHistory.length === 0) {
             logger.warn(`No transaction history found for bitmap ${bitmapNumber}`);
             return null;
-        }
-
-        // Convert transaction data to pattern format for Mondrian visualization
+        }        // Convert transaction data to simple size string for Mondrian visualization
         const txListArray = txHistory.map(tx => {
             // Use proper value-to-size conversion (like in the original demo)
             const btcValue = tx.value / 100000000; // Convert sats to BTC
@@ -1676,42 +1780,26 @@ async function generateBitmapPattern(bitmapNumber, inscriptionId) {
             return size; // Return simple number for MondrianLayout
         });
 
-        const patternData = {
-            pattern: 'mondrian',
-            // Store txList as simple string of digits 1-9 for better compression
-            txList: txListArray.join(''), // "554433221" instead of [5,5,4,4,3,3,2,2,1]
-            txListArray: txListArray, // Keep array format for backward compatibility
-            transactions: txHistory.map(tx => ({
-                txid: tx.txid,
-                blockHeight: tx.blockHeight,
-                value: tx.value,
-                size: Math.max(1, Math.min(9, Math.floor(tx.value / 100000) || 1)),
-                color: `hsl(${(tx.blockHeight % 360)}, 70%, 50%)`
-            })),
-            generatedAt: new Date().toISOString()
-        };
+        // Just store the simple pattern string - no extra metadata needed
+        const patternString = txListArray.join(''); // "554433221"
 
         // Save pattern to database
         return new Promise((resolve, reject) => {
             const stmt = db.prepare(`
                 INSERT OR REPLACE INTO bitmap_patterns 
-                (bitmap_number, pattern_data, transaction_count, block_height, generated_at) 
-                VALUES (?, ?, ?, ?, ?)
+                (bitmap_number, pattern_string) 
+                VALUES (?, ?)
             `);
-            
-            stmt.run([
+              stmt.run([
                 bitmapNumber,
-                JSON.stringify(patternData),
-                txHistory.length,
-                txHistory[0]?.blockHeight || 0,
-                new Date().toISOString()
+                patternString
             ], function(err) {
                 if (err) {
                     logger.error(`Error saving pattern for bitmap ${bitmapNumber}:`, { message: err.message });
                     reject(err);
                 } else {
-                    logger.info(`Pattern generated and saved for bitmap ${bitmapNumber} with ${txHistory.length} transactions`);
-                    resolve(patternData);
+                    logger.info(`Pattern saved for bitmap ${bitmapNumber}: ${patternString}`);
+                    resolve(patternString);
                 }
             });
         });

@@ -31,10 +31,10 @@ try {
 }
 
 // Helper function for pagination - optimized for local node
-function paginate(query, params, page = 1, limit = 100) { // Increased default limit for local node
+function paginate(query, params, page = 1, limit = 100) { 
     const offset = (page - 1) * limit;
-    // Cap maximum limit to prevent memory issues
-    const cappedLimit = Math.min(limit, 500); // Maximum 500 records per request
+    // Cap maximum limit to prevent memory issues on very large queries
+    const cappedLimit = Math.min(limit, 10000); // Increased to 10,000 for local node
     return {
         query: query + ` LIMIT ${cappedLimit} OFFSET ${offset}`,
         params: params
@@ -339,54 +339,19 @@ router.get('/bitmap/:bitmap_number/pattern', (req, res) => {
         if (!row) {
             return res.status(404).json({ error: "Pattern not found for this bitmap" });
         }
-          // Parse the pattern data JSON
-        try {
-            const patternData = JSON.parse(row.pattern_data);
-            
-            // Handle both old and new pattern data formats
-            let responseData = {
-                bitmap_number: row.bitmap_number,
-                block_height: row.block_height,
-                transaction_count: row.transaction_count,
-                generated_at: row.generated_at
-            };            // New enhanced format with pattern string and txList
-            if (patternData.pattern && patternData.txList) {
-                responseData.pattern = patternData.pattern;
-                
-                // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
-                if (typeof patternData.txList === 'string') {
-                    // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
-                    responseData.txList = patternData.txList.split('').map(Number);
-                } else if (Array.isArray(patternData.txList)) {
-                    // Already an array
-                    responseData.txList = patternData.txList;
-                } else if (patternData.txListArray) {
-                    // Use backup array format
-                    responseData.txList = patternData.txListArray;
-                } else {
-                    responseData.txList = [];
-                }
-                
-                responseData.squareSizes = responseData.txList; // Backward compatibility
-                responseData.transactions = patternData.transactions; // Detailed transaction data
-            } else if (patternData.pattern && patternData.squareSizes) {
-                // Handle old squareSizes naming for backward compatibility
-                responseData.pattern = patternData.pattern;
-                responseData.txList = patternData.squareSizes;
-                responseData.squareSizes = patternData.squareSizes;
-                responseData.transactions = patternData.transactions;
-            } else {
-                // Old format - convert to new format for compatibility
-                responseData.pattern = null;
-                responseData.txList = [];
-                responseData.squareSizes = [];
-                responseData.transactions = patternData; // Old format was just transaction array
-            }
-            
-            return res.json(responseData);
-        } catch (parseErr) {
-            return res.status(500).json({ error: 'Invalid pattern data format' });
-        }
+        
+        // Convert pattern string to array format for compatibility
+        const patternString = row.pattern_string;
+        const txList = patternString.split('').map(Number);
+        
+        const responseData = {
+            bitmap_number: parseInt(row.bitmap_number),
+            pattern: 'mondrian',
+            pattern_string: patternString,
+            txList: txList,
+            squareSizes: txList // Backward compatibility
+        };
+          return res.json(responseData);
     });
 });
 
@@ -397,14 +362,10 @@ router.get('/bitmaps/enhanced', (req, res) => {
     }
     
     const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const query = `
+    const offset = (page - 1) * limit;    const query = `
         SELECT 
             b.*,
-            bp.pattern_data,
-            bp.transaction_count,
-            bp.generated_at as pattern_generated_at
+            bp.pattern_string
         FROM bitmaps b
         LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
         ORDER BY b.bitmap_number DESC
@@ -416,49 +377,16 @@ router.get('/bitmaps/enhanced', (req, res) => {
             return res.status(500).json({ error: err.message });
         }        // Parse pattern data for each row
         const enhancedRows = rows.map(row => {
-            if (row.pattern_data) {
-                try {
-                    const patternData = JSON.parse(row.pattern_data);
-                      // Handle both old and new pattern data formats
-                    if (patternData.pattern && patternData.txList) {
-                        // New enhanced format with txList (could be string or array)
-                        row.pattern = patternData.pattern;
-                        
-                        // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
-                        if (typeof patternData.txList === 'string') {
-                            // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
-                            row.txList = patternData.txList.split('').map(Number);
-                        } else if (Array.isArray(patternData.txList)) {
-                            // Already an array
-                            row.txList = patternData.txList;
-                        } else if (patternData.txListArray) {
-                            // Use backup array format
-                            row.txList = patternData.txListArray;
-                        } else {
-                            row.txList = [];
-                        }
-                        
-                        row.squareSizes = row.txList; // Backward compatibility
-                        row.transactions = patternData.transactions; // Detailed transaction data
-                    } else if (patternData.pattern && patternData.squareSizes) {
-                        // Handle old squareSizes naming for backward compatibility
-                        row.pattern = patternData.pattern;
-                        row.txList = patternData.squareSizes;
-                        row.squareSizes = patternData.squareSizes;
-                        row.transactions = patternData.transactions;
-                    } else {
-                        // Old format - just set as transactions for compatibility
-                        row.pattern = null;
-                        row.txList = [];
-                        row.squareSizes = [];
-                        row.transactions = patternData;                    }
-                    delete row.pattern_data; // Remove raw JSON string
-                } catch (parseErr) {
-                    row.pattern = null;
-                    row.txList = [];
-                    row.squareSizes = [];
-                    row.transactions = null;
-                }
+            if (row.pattern_string) {
+                // Convert pattern string to array format
+                row.pattern = 'mondrian';
+                row.txList = row.pattern_string.split('').map(Number);
+                row.squareSizes = row.txList; // Backward compatibility
+                delete row.pattern_string; // Remove raw string
+            } else {
+                row.pattern = null;
+                row.txList = [];
+                row.squareSizes = [];
             }
             return row;
         });
@@ -556,14 +484,11 @@ router.get('/bitmaps/search', (req, res) => {
         }
         
         const totalCount = countResult.total;
-        
-        // Then get the actual data with patterns
+          // Then get the actual data with patterns
         const dataQuery = `
             SELECT 
                 b.*,
-                bp.pattern_data,
-                bp.transaction_count,
-                bp.generated_at as pattern_generated_at
+                bp.pattern_string
             FROM bitmaps b
             LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
             ${whereClause}
@@ -577,50 +502,18 @@ router.get('/bitmaps/search', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
-            
-            // Parse pattern data for each row
+              // Parse pattern data for each row
             const enhancedRows = rows.map(row => {
-                if (row.pattern_data) {
-                    try {
-                        const patternData = JSON.parse(row.pattern_data);
-                          // Handle both old and new pattern data formats
-                        if (patternData.pattern && patternData.txList) {
-                            row.pattern = patternData.pattern;
-                            
-                            // Handle both string format "554433221" and array format [5,5,4,4,3,3,2,2,1]
-                            if (typeof patternData.txList === 'string') {
-                                // Convert string "554433221" to array [5,5,4,4,3,3,2,2,1]
-                                row.txList = patternData.txList.split('').map(Number);
-                            } else if (Array.isArray(patternData.txList)) {
-                                // Already an array
-                                row.txList = patternData.txList;
-                            } else if (patternData.txListArray) {
-                                // Use backup array format
-                                row.txList = patternData.txListArray;
-                            } else {
-                                row.txList = [];
-                            }
-                            
-                            row.squareSizes = row.txList;
-                            row.transactions = patternData.transactions;
-                        } else if (patternData.pattern && patternData.squareSizes) {
-                            row.pattern = patternData.pattern;
-                            row.txList = patternData.squareSizes;
-                            row.squareSizes = patternData.squareSizes;
-                            row.transactions = patternData.transactions;
-                        } else {
-                            row.pattern = null;
-                            row.txList = [];
-                            row.squareSizes = [];
-                            row.transactions = patternData;
-                        }
-                        delete row.pattern_data;
-                    } catch (parseErr) {
-                        row.pattern = null;
-                        row.txList = [];
-                        row.squareSizes = [];
-                        row.transactions = null;
-                    }
+                if (row.pattern_string) {
+                    // Convert pattern string to array format
+                    row.pattern = 'mondrian';
+                    row.txList = row.pattern_string.split('').map(Number);
+                    row.squareSizes = row.txList; // Backward compatibility
+                    delete row.pattern_string; // Remove raw string
+                } else {
+                    row.pattern = null;
+                    row.txList = [];
+                    row.squareSizes = [];
                 }
                 return row;
             });
@@ -719,16 +612,13 @@ router.get('/address/:address/verified-bitmaps', (req, res) => {
     
     const address = req.params.address;
     const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;
-
-    const query = `
+    const offset = (page - 1) * limit;    const query = `
         SELECT 
             b.*,
             ov.confidence_score,
             ov.last_verified,
             ov.verification_method,
-            bp.pattern_data,
-            bp.transaction_count
+            bp.pattern_string
         FROM bitmaps b
         JOIN ownership_verification ov ON b.inscription_id = ov.inscription_id
         LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
@@ -741,23 +631,16 @@ router.get('/address/:address/verified-bitmaps', (req, res) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
-        
-        // Parse pattern data for each row
+          // Parse pattern data for each row
         const enhancedRows = rows.map(row => {
-            if (row.pattern_data) {
-                try {
-                    const patternData = JSON.parse(row.pattern_data);
-                    if (patternData.pattern && patternData.txList) {
-                        row.pattern = patternData.pattern;
-                        row.txList = patternData.txList;
-                        row.transactions = patternData.transactions;
-                    }
-                    delete row.pattern_data;
-                } catch (parseErr) {
-                    row.pattern = null;
-                    row.txList = [];
-                    row.transactions = null;
-                }
+            if (row.pattern_string) {
+                // Convert pattern string to array format
+                row.pattern = 'mondrian';
+                row.txList = row.pattern_string.split('').map(Number);
+                delete row.pattern_string; // Remove raw string
+            } else {
+                row.pattern = null;
+                row.txList = [];
             }
             return row;
         });

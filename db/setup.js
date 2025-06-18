@@ -99,25 +99,18 @@ db.serialize(() => {
         } else {
             console.log('Parcels table created or already exists');
         }
-    });
-
-    // Create bitmap_patterns table for storing transaction pattern arrays
+    });    // Create bitmap_patterns table for storing simple transaction size strings
     db.run(`CREATE TABLE IF NOT EXISTS bitmap_patterns (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        bitmap_number INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        pattern_data TEXT NOT NULL,
-        transaction_count INTEGER NOT NULL,
-        generated_at INTEGER NOT NULL,
-        FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number),
-        UNIQUE(bitmap_number, block_height)
+        bitmap_number INTEGER PRIMARY KEY,
+        pattern_string TEXT NOT NULL,
+        FOREIGN KEY (bitmap_number) REFERENCES bitmaps(bitmap_number)
     )`, (err) => {
         if (err) {
             console.error('Error creating bitmap_patterns table:', err.message);
         } else {
             console.log('Bitmap patterns table created or already exists');
         }
-    });    // Create wallets table
+    });// Create wallets table
     db.run(`CREATE TABLE IF NOT EXISTS wallets (
         inscription_id TEXT PRIMARY KEY,
         address TEXT NOT NULL,
