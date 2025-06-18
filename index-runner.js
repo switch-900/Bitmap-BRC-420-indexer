@@ -2,6 +2,7 @@ const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
 const winston = require('winston');
 const Joi = require('joi');
+const pLimit = require('p-limit');
 const config = require('./config');
 
 // Initialize Winston logger
@@ -37,6 +38,146 @@ const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 let currentBlock = START_BLOCK;
 let db;
 let useLocalAPI = false;
+
+// PERFORMANCE OPTIMIZATION: Add concurrency control
+const concurrencyLimit = pLimit(config.CONCURRENCY_LIMIT || 5);
+
+// PERFORMANCE OPTIMIZATION: API response cache
+class APICache {
+    constructor(maxAge = 60000) { // 1 minute cache
+        this.cache = new Map();
+        this.maxAge = maxAge;
+    }
+    
+    get(key) {
+        const item = this.cache.get(key);
+        if (!item) return null;
+        
+        if (Date.now() - item.timestamp > this.maxAge) {
+            this.cache.delete(key);
+            return null;
+        }
+        
+        return item.data;
+    }
+    
+    set(key, data) {
+        this.cache.set(key, {
+            data,
+            timestamp: Date.now()
+        });
+    }
+}
+
+const apiCache = new APICache();
+
+// PERFORMANCE OPTIMIZATION: Cached API functions to reduce redundant calls
+async function getDeployerAddressCached(inscriptionId) {
+    const cacheKey = `deployer_${inscriptionId}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached !== null) return cached;
+    
+    try {
+        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        const address = response.data.address || null;
+        apiCache.set(cacheKey, address);
+        return address;
+    } catch (error) {
+        logger.error(`Error getting deployer address for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+async function getInscriptionContentCached(inscriptionId) {
+    const cacheKey = `content_${inscriptionId}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached !== null) return cached;
+    
+    try {
+        const response = await axios.get(`${API_URL}/content/${inscriptionId}`, {
+            headers: { 'Accept': 'text/plain' },
+            responseType: 'text'
+        });
+        const content = response.data || '';
+        apiCache.set(cacheKey, content);
+        return content;    } catch (error) {
+        logger.error(`Error getting inscription content for ${inscriptionId}:`, { message: error.message });
+        return '';
+    }
+}
+
+async function getInscriptionDetailsCached(inscriptionId) {
+    const cacheKey = `details_${inscriptionId}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached !== null) return cached;
+    
+    try {
+        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        const details = response.data || null;
+        apiCache.set(cacheKey, details);
+        return details;
+    } catch (error) {
+        logger.error(`Error getting inscription details for ${inscriptionId}:`, { message: error.message });
+        return null;
+    }
+}
+
+// PERFORMANCE OPTIMIZATION: Batch database operations
+class DatabaseBatcher {
+    constructor(db) {
+        this.db = db;
+        this.walletBatch = [];
+        this.batchSize = 50; // Process in smaller batches for better memory management
+    }
+    
+    addWallet(inscriptionId, address, type) {
+        this.walletBatch.push({ inscriptionId, address, type, timestamp: Date.now() });
+        if (this.walletBatch.length >= this.batchSize) {
+            return this.flushWallets();
+        }
+        return Promise.resolve();
+    }
+    
+    async flushWallets() {
+        if (this.walletBatch.length === 0) return;
+        
+        const batch = [...this.walletBatch];
+        this.walletBatch = [];
+        
+        return new Promise((resolve, reject) => {
+            this.db.serialize(() => {
+                this.db.run("BEGIN TRANSACTION");
+                
+                const stmt = this.db.prepare("INSERT OR REPLACE INTO wallets (inscription_id, address, type, updated_at) VALUES (?, ?, ?, ?)");
+                
+                batch.forEach(wallet => {
+                    stmt.run([wallet.inscriptionId, wallet.address, wallet.type, wallet.timestamp]);
+                });
+                
+                stmt.finalize();
+                
+                this.db.run("COMMIT", (err) => {
+                    if (err) {
+                        logger.error('Error flushing wallet batch:', err);
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            });
+        });
+    }
+    
+    async flushAll() {
+        await this.flushWallets();
+    }
+}
+
+let dbBatcher;
 
 // Test if local Ordinals API is available
 async function testLocalAPIConnectivity() {
@@ -146,13 +287,14 @@ async function testLocalMempoolAPIConnectivity() {
 
 // Initialize database connection for indexer
 function initializeIndexerDb() {
-    return new Promise((resolve, reject) => {
-        db = new sqlite3.Database(config.DB_PATH, (err) => {
+    return new Promise((resolve, reject) => {        db = new sqlite3.Database(config.DB_PATH, (err) => {
             if (err) {
                 logger.error('Error opening indexer database:', { message: err.message });
                 reject(err);
             } else {
                 logger.info('Indexer connected to the BRC-420 database.');
+                // Initialize database batcher for performance optimization
+                dbBatcher = new DatabaseBatcher(db);
                 resolve();
             }
         });
@@ -183,31 +325,37 @@ const mintSchema = Joi.object({
     timestamp: Joi.date().timestamp().required()
 });
 
-// Function to save or update a wallet
+// Function to save or update a wallet (using batch operations for performance)
 function saveOrUpdateWallet(inscriptionId, address, type) {
-    return new Promise((resolve, reject) => {
-        const stmt = db.prepare("INSERT OR REPLACE INTO wallets (inscription_id, address, type, updated_at) VALUES (?, ?, ?, ?)");
-        stmt.run([inscriptionId, address, type, Date.now()], function(err) {
-            if (err) {
-                logger.error(`Error saving/updating wallet ${address} for inscription ${inscriptionId}:`, { message: err.message });
-                reject(err);
-            } else {
-                logger.info(`Wallet ${address} for inscription ${inscriptionId} saved/updated.`);
-                resolve();
-            }
+    if (dbBatcher) {
+        return dbBatcher.addWallet(inscriptionId, address, type);
+    } else {
+        // Fallback to direct database operation if batcher not initialized
+        return new Promise((resolve, reject) => {
+            const stmt = db.prepare("INSERT OR REPLACE INTO wallets (inscription_id, address, type, updated_at) VALUES (?, ?, ?, ?)");
+            stmt.run([inscriptionId, address, type, Date.now()], function(err) {
+                if (err) {
+                    logger.error(`Error saving/updating wallet ${address} for inscription ${inscriptionId}:`, { message: err.message });
+                    reject(err);
+                } else {
+                    logger.info(`Wallet ${address} for inscription ${inscriptionId} saved/updated.`);
+                    resolve();
+                }
+            });
         });
-    });
+    }
 }
 
 // Function to validate that deployer owns the source inscription
-async function validateDeployerOwnership(deployInscription) {
-    try {
-        // Get the source inscription details
-        const response = await axios.get(`${API_URL}/inscription/${deployInscription.source_id}`, {
-            headers: { 'Accept': 'application/json' }
-        });
+async function validateDeployerOwnership(deployInscription) {    try {
+        // Get the source inscription details using cached API call
+        const sourceDetails = await getInscriptionDetailsCached(deployInscription.source_id);
+        if (!sourceDetails) {
+            logger.error(`Could not get source inscription details for ${deployInscription.source_id}`);
+            return false;
+        }
 
-        const sourceAddress = response.data.address;
+        const sourceAddress = sourceDetails.address;
         const deployerAddress = deployInscription.deployer_address;
 
         const isValid = sourceAddress === deployerAddress;
@@ -357,13 +505,11 @@ function getDeployById(deployId) {
     });
 }
 
-// Function to get mint address
+// Function to get mint address (using cached API call)
 async function getMintAddress(inscriptionId) {
     try {
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-        return response.data.address || null;
+        const details = await getInscriptionDetailsCached(inscriptionId);
+        return details ? details.address : null;
     } catch (error) {
         logger.error(`Error getting mint address for ${inscriptionId}:`, { message: error.message });
         return null;
@@ -804,17 +950,13 @@ async function getBlockStats(blockHeight) {
 // Function to process inscription
 async function processInscription(inscriptionId, blockHeight) {
     try {
-        const res = await axios.get(`${API_URL}/content/${inscriptionId}`, {
-            headers: { 'Accept': 'text/plain;charset=utf-8' }
-        });
-
-        let content = res.data;
+        let content = await getInscriptionContentCached(inscriptionId);
         if (typeof content !== 'string') {
             content = JSON.stringify(content);
-        }        processingLogger.info(`Processing inscription ${inscriptionId}: ${content.substring(0, 100)}...`);        // Check for BRC-420 deploy
+        }processingLogger.info(`Processing inscription ${inscriptionId}: ${content.substring(0, 100)}...`);        // Check for BRC-420 deploy
         if (content.startsWith('{"p":"brc-420","op":"deploy"')) {
             const deployData = JSON.parse(content);
-            deployData.deployer_address = await getDeployerAddress(inscriptionId);
+            deployData.deployer_address = await getDeployerAddressCached(inscriptionId);
             deployData.block_height = blockHeight;
             deployData.timestamp = Date.now();
             deployData.source_id = deployData.id;
@@ -894,7 +1036,7 @@ async function processInscription(inscriptionId, blockHeight) {
                         const isValidProvenance = await validateParcelProvenance(inscriptionId, bitmapInscriptionId);
                         
                         if (isValidProvenance) {
-                            const address = await getDeployerAddress(inscriptionId);
+                            const address = await getDeployerAddressCached(inscriptionId);
                             // Get transaction count for the CURRENT block (where parcel is inscribed)
                             const transactionCount = await getBlockTransactionCount(blockHeight);
                             const isValidNumber = validateParcelNumber(parcelInfo.parcelNumber, transactionCount);
@@ -932,7 +1074,7 @@ async function processInscription(inscriptionId, blockHeight) {
             else if (isValidBitmapFormat(content)) {
                 const bitmapNumber = parseInt(content.split('.')[0], 10);
                 if (!isNaN(bitmapNumber) && bitmapNumber >= 0 && bitmapNumber <= blockHeight) {
-                    const address = await getDeployerAddress(inscriptionId);
+                    const address = await getDeployerAddressCached(inscriptionId);
                     if (address) {
                         const saved = await saveBitmap({
                             inscription_id: inscriptionId,
@@ -982,21 +1124,24 @@ async function processBlock(blockHeight) {
             
             // Log mint detection stats
             logMintDetectionStats(blockHeight, inscriptions);
+              // PERFORMANCE IMPROVEMENT: Process inscriptions concurrently with rate limiting
+            const results = await Promise.allSettled(
+                inscriptions.map(inscriptionId => 
+                    concurrencyLimit(() => processInscription(inscriptionId, blockHeight))
+                )
+            );
             
-            // Process inscriptions sequentially - no rate limiting needed for local API
-            for (const inscriptionId of inscriptions) {
-                try {
-                    const result = await processInscription(inscriptionId, blockHeight);
-                    if (result) {
-                        if (result.type === 'mint') mintCount++;
-                        else if (result.type === 'deploy') deployCount++;
-                        else if (result.type === 'bitmap') bitmapCount++;
-                        else if (result.type === 'parcel') parcelCount++;
-                    }
-                } catch (error) {
-                    logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
+            // Count results
+            results.forEach(result => {
+                if (result.status === 'fulfilled' && result.value) {
+                    if (result.value.type === 'mint') mintCount++;
+                    else if (result.value.type === 'deploy') deployCount++;
+                    else if (result.value.type === 'bitmap') bitmapCount++;
+                    else if (result.value.type === 'parcel') parcelCount++;
+                } else if (result.status === 'rejected') {
+                    logger.error(`Error processing inscription:`, { message: result.reason?.message || result.reason });
                 }
-            }
+            });
             
             // Save comprehensive block statistics
             await saveBlockStats(
@@ -1024,9 +1169,13 @@ async function processBlock(blockHeight) {
             logger.info('Local API failed, switching to external API for future requests');
             API_URL = config.getApiUrl(); // Switch back to external API
             useLocalAPI = false;
-        }
-        
+        }        
         logErrorBlock(blockHeight);
+    }
+    
+    // PERFORMANCE OPTIMIZATION: Flush any remaining batched operations
+    if (dbBatcher) {
+        await dbBatcher.flushAll();
     }
 }
 
@@ -1120,12 +1269,13 @@ async function startProcessing() {
 // Function to check and update inscription ownership
 async function checkAndUpdateInscriptionOwnership(inscriptionId, blockHeight) {
     try {
-        // Get current address from Ordinals API
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
+        // Get current address from cached API call
+        const inscriptionDetails = await getInscriptionDetailsCached(inscriptionId);
+        if (!inscriptionDetails) {
+            return false;
+        }
         
-        const currentAddress = response.data.address;
+        const currentAddress = inscriptionDetails.address;
         if (!currentAddress) {
             return false;
         }
@@ -1269,17 +1419,23 @@ async function trackKnownInscriptionTransfers(blockHeight) {
         if (knownInscriptions.length === 0) {
             processingLogger.debug(`No known inscriptions to track transfers for in block ${blockHeight}`);
             return;
-        }
-
-        processingLogger.info(`Checking ${knownInscriptions.length} known inscriptions for transfers in block ${blockHeight}`);
+        }        processingLogger.info(`Checking ${knownInscriptions.length} known inscriptions for transfers in block ${blockHeight}`);
+        
+        // PERFORMANCE OPTIMIZATION: Process transfer checks concurrently
+        const transferResults = await Promise.allSettled(
+            knownInscriptions.map(inscription => 
+                concurrencyLimit(() => checkAndUpdateInscriptionOwnership(inscription.inscription_id, blockHeight))
+            )
+        );
         
         let transferCount = 0;
-        for (const inscription of knownInscriptions) {
-            const wasTransferred = await checkAndUpdateInscriptionOwnership(inscription.inscription_id, blockHeight);
-            if (wasTransferred) {
+        transferResults.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
                 transferCount++;
+            } else if (result.status === 'rejected') {
+                logger.error(`Error checking inscription transfer:`, { message: result.reason?.message || result.reason });
             }
-        }
+        });
 
         if (transferCount > 0) {
             processingLogger.info(`Detected ${transferCount} transfers in block ${blockHeight}`);
