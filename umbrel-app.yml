@@ -1,0 +1,54 @@
+manifestVersion: 1
+id: bitmap-brc-420-indexer
+name: BRC-420 & Bitmap Indexer
+tagline: Index Bitcoin BRC-420 inscriptions and bitmaps locally
+icon: https://raw.githubusercontent.com/your-username/Bitmap-BRC-420-indexer/main/bitmap-461461.png
+category: bitcoin
+version: "1.0.0"
+port: 8080
+description: >-
+  A comprehensive Bitcoin inscription indexer that runs privately on your Umbrel node. 
+  This application indexes BRC-420 deploys, mints, and Bitcoin bitmap inscriptions 
+  directly from your local Bitcoin Core and Ordinals services.
+
+
+  Features:
+
+  - 🔍 Real-time BRC-420 Indexing: Monitors and validates deploy/mint inscriptions
+
+  - 🗺️ Bitmap Support: Tracks Bitcoin bitmap inscriptions (.bitmap format)
+
+  - 🌐 Modern Web Interface: Browse indexed data with responsive UI
+
+  - 🔌 REST API: Complete API for external integrations
+
+  - 🔒 Privacy First: Uses your local Ordinals service when available
+
+  - 🚀 Smart Content Loading: Uses local Ordinals node for faster content preview
+
+
+  The indexer automatically detects and uses your local Ordinals and Mempool services 
+  when available, falling back to external APIs only when necessary.
+
+releaseNotes: >-
+  Initial release with simplified bitmap_patterns table structure.
+  Optimized for local node performance with automatic service detection.
+
+developer: BRC-420 Indexer Team
+website: https://github.com/your-username/Bitmap-BRC-420-indexer
+submitter: your-username
+submission: https://github.com/getumbrel/umbrel-apps/pull/XXX
+repo: https://github.com/your-username/Bitmap-BRC-420-indexer
+support: https://github.com/your-username/Bitmap-BRC-420-indexer/issues
+gallery:
+  - https://raw.githubusercontent.com/your-username/Bitmap-BRC-420-indexer/main/public/screenshot1.png
+  - https://raw.githubusercontent.com/your-username/Bitmap-BRC-420-indexer/main/public/screenshot2.png
+
+dependencies:
+  - bitcoin
+  - ordinals
+
+path: ""
+
+defaultUsername: ""
+defaultPassword: ""

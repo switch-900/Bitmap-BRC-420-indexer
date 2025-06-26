@@ -2,7 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 // Open database
-const dbPath = path.join(__dirname, 'indexer.db');
+const dbPath = path.join(__dirname, 'db', 'brc420.db');
 const db = new sqlite3.Database(dbPath);
 
 console.log('🔍 Checking sat numbers in bitmaps table...\n');

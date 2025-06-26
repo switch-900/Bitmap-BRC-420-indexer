@@ -1,0 +1,3 @@
+[submodule "bitcoin-indexers-app-store"]
+	path = bitcoin-indexers-app-store
+	url = https://github.com/switch-900/bitcoin-indexers-app-store.git

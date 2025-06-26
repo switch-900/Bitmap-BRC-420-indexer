@@ -267,7 +267,6 @@ db.serialize(() => {
         'CREATE INDEX IF NOT EXISTS idx_parcels_address ON parcels(address)',
         'CREATE INDEX IF NOT EXISTS idx_parcels_is_valid ON parcels(is_valid)',
         'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
-        'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_block_height ON bitmap_patterns(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
         'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
         'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',

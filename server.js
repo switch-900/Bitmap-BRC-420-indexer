@@ -164,7 +164,6 @@ function setupDatabaseSchema(db, callback) {
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_address ON bitmaps(address)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_sat ON bitmaps(sat)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
-                    'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_block_height ON bitmap_patterns(block_height)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
                     'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',
