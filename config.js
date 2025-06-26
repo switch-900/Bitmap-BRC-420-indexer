@@ -2,7 +2,7 @@ require('dotenv').config();
 
 module.exports = {    // Primary API URLs - prefer local Umbrel services if available
     ORD_API_URL: process.env.ORD_API_URL || null, // Will be tested dynamically
-    API_URL: process.env.API_URL || 'https://ordinals.com/api',
+    API_URL: process.env.API_URL || 'https://ordinals.com',
     API_WALLET_URL: process.env.API_WALLET_URL || null, // Will be tested dynamically for Umbrel patterns
     
     // Bitcoin RPC connection for direct node access

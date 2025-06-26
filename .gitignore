@@ -19,9 +19,13 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
 db/*.sqlite
 db/*.sqlite3
 db/*.db
+db/*.db-shm
+db/*.db-wal
 
 # Ignore local environment files
 .env.local
