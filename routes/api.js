@@ -131,6 +131,10 @@ router.get('/deploy/:deploy_id/mints', (req, res) => {
 
 // Endpoint to get wallet information for an inscription
 router.get('/wallet/:inscription_id', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const inscriptionId = req.params.inscription_id;
 
     // Updated to query deploys, mints, and bitmaps directly
@@ -157,6 +161,10 @@ router.get('/wallet/:inscription_id', (req, res) => {
 
 // Endpoint to get all inscriptions for a specific address
 router.get('/address/:address/inscriptions', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const address = req.params.address;
     const { page = 1, limit = 20 } = req.query;
 
@@ -180,6 +188,10 @@ router.get('/address/:address/inscriptions', (req, res) => {
 
 // Endpoint to get the processing status of a specific block
 router.get('/block/:block_height/status', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const blockHeight = req.params.block_height;
 
     db.get("SELECT * FROM blocks WHERE block_height = ?", [blockHeight], (err, row) => {
@@ -231,6 +243,10 @@ router.get('/deploy/:deploy_id/summary', (req, res) => {
 
 // Endpoint to get all deploys with their mint counts
 router.get('/deploys/with-mints', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const { page = 1, limit = 20 } = req.query;
 
     const paginatedQuery = paginate(`
@@ -251,6 +267,10 @@ router.get('/deploys/with-mints', (req, res) => {
 
 // New endpoint to get bitmap by inscription ID
 router.get('/bitmap/:inscription_id', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const inscriptionId = req.params.inscription_id;
 
     db.get("SELECT * FROM bitmaps WHERE inscription_id = ?", [inscriptionId], (err, row) => {
@@ -266,6 +286,10 @@ router.get('/bitmap/:inscription_id', (req, res) => {
 
 // Endpoint to get bitmaps by bitmap number
 router.get('/bitmaps/number/:bitmap_number', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const bitmapNumber = req.params.bitmap_number;
     const { page = 1, limit = 20 } = req.query;
 
@@ -281,6 +305,10 @@ router.get('/bitmaps/number/:bitmap_number', (req, res) => {
 
 // Endpoint to get all bitmaps for a specific address
 router.get('/address/:address/bitmaps', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const address = req.params.address;
     const { page = 1, limit = 20 } = req.query;
 
@@ -296,6 +324,10 @@ router.get('/address/:address/bitmaps', (req, res) => {
 
 // Endpoint to get a summary of bitmaps (total count, latest bitmap number, etc.)
 router.get('/bitmaps/summary', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     db.get(`
         SELECT 
             COUNT(*) as total_bitmaps,
@@ -313,6 +345,10 @@ router.get('/bitmaps/summary', (req, res) => {
 
 // New endpoint to get all bitmaps with optional pagination
 router.get('/bitmaps', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 

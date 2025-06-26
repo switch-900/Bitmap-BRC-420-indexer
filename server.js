@@ -146,7 +146,7 @@ function setupDatabaseSchema(db, callback) {
     
     db.serialize(() => {
         let tablesCreated = 0;
-        const totalTables = 8; // Added block_stats table
+        const totalTables = 9; // Added block_stats and failed_inscriptions tables
         
         function checkCompletion() {
             tablesCreated++;
@@ -294,6 +294,20 @@ function setupDatabaseSchema(db, callback) {
             UNIQUE(block_height)
         )`, [], () => {
             console.log('Block stats table created or already exists');
+            checkCompletion();
+        });
+
+        // Create failed_inscriptions table for tracking processing failures
+        safeDbRun(`CREATE TABLE IF NOT EXISTS failed_inscriptions (
+            inscription_id TEXT PRIMARY KEY,
+            block_height INTEGER NOT NULL,
+            error_message TEXT,
+            retry_count INTEGER DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            last_retry_at INTEGER,
+            UNIQUE(inscription_id)
+        )`, [], () => {
+            console.log('Failed inscriptions table created or already exists');
             checkCompletion();
         });
     });

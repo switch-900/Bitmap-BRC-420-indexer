@@ -189,7 +189,26 @@ db.serialize(() => {
             console.error('Error creating error_blocks table:', err.message);
         } else {
             console.log('Error blocks table created or already exists');
-        }    });    // Create block_stats table for tracking transaction counts and other block metrics
+        }    });
+
+    // Create failed_inscriptions table for tracking processing failures
+    db.run(`CREATE TABLE IF NOT EXISTS failed_inscriptions (
+        inscription_id TEXT PRIMARY KEY,
+        block_height INTEGER NOT NULL,
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        last_retry_at INTEGER,
+        UNIQUE(inscription_id)
+    )`, (err) => {
+        if (err) {
+            console.error('Error creating failed_inscriptions table:', err.message);
+        } else {
+            console.log('Failed inscriptions table created or already exists');
+        }
+    });
+
+    // Create block_stats table for tracking transaction counts and other block metrics
     db.run(`CREATE TABLE IF NOT EXISTS block_stats (
         block_height INTEGER PRIMARY KEY,
         total_transactions INTEGER NOT NULL,
@@ -276,7 +295,10 @@ db.serialize(() => {
         'CREATE INDEX IF NOT EXISTS idx_address_history_block_height ON address_history(block_height)',
         'CREATE INDEX IF NOT EXISTS idx_ownership_verification_inscription_id ON ownership_verification(inscription_id)',
         'CREATE INDEX IF NOT EXISTS idx_ownership_verification_current_address ON ownership_verification(current_address)',
-        'CREATE INDEX IF NOT EXISTS idx_ownership_verification_last_verified ON ownership_verification(last_verified)'
+        'CREATE INDEX IF NOT EXISTS idx_ownership_verification_last_verified ON ownership_verification(last_verified)',
+        'CREATE INDEX IF NOT EXISTS idx_failed_inscriptions_block_height ON failed_inscriptions(block_height)',
+        'CREATE INDEX IF NOT EXISTS idx_failed_inscriptions_retry_count ON failed_inscriptions(retry_count)',
+        'CREATE INDEX IF NOT EXISTS idx_failed_inscriptions_created_at ON failed_inscriptions(created_at)'
     ];
 
     indexes.forEach((indexSql, i) => {

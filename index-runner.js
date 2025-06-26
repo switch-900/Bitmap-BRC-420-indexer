@@ -4,6 +4,7 @@ const winston = require('winston');
 const Joi = require('joi');
 const pLimit = require('p-limit');
 const config = require('./config');
+const BitmapProcessor = require('./bitmap-processor');
 
 // Initialize Winston logger
 const logger = winston.createLogger({
@@ -38,17 +39,52 @@ const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 let currentBlock = START_BLOCK;
 let db;
 let useLocalAPI = false;
+let bitmapProcessor; // BitmapProcessor instance
 
-// PERFORMANCE OPTIMIZATION: Add concurrency control
-const concurrencyLimit = pLimit(config.CONCURRENCY_LIMIT || 5);
+// ================================
+// UNLIMITED PROCESSING CLASSES
+// ================================
 
-// PERFORMANCE OPTIMIZATION: API response cache
-class APICache {
-    constructor(maxAge = 60000, maxSize = 10000) { // 1 minute cache, max 10k entries
+// Class for unlimited API cache with intelligent memory management
+class UnlimitedAPICache {
+    constructor(maxAge = 300000) { // 5 minute cache
         this.cache = new Map();
         this.maxAge = maxAge;
-        this.maxSize = maxSize;
-        this.cleanupInterval = setInterval(() => this.cleanup(), maxAge);
+        this.memoryThreshold = 0.8; // 80% of available memory
+        this.lastCleanup = Date.now();
+        this.cleanupInterval = setInterval(() => this.smartCleanup(), 60000); // Every minute
+    }
+    
+    smartCleanup() {
+        const now = Date.now();
+        const memoryUsage = process.memoryUsage();
+        const memoryPressure = memoryUsage.heapUsed / memoryUsage.heapTotal;
+        
+        let keysToDelete = [];
+        
+        // Always remove expired entries
+        for (const [key, item] of this.cache.entries()) {
+            if (now - item.timestamp > this.maxAge) {
+                keysToDelete.push(key);
+            }
+        }
+        
+        // If under memory pressure, remove older entries
+        if (memoryPressure > this.memoryThreshold) {
+            const allEntries = Array.from(this.cache.entries())
+                .sort((a, b) => a[1].timestamp - b[1].timestamp);
+            
+            const entriesToRemove = Math.floor(allEntries.length * 0.2); // Remove oldest 20%
+            keysToDelete = keysToDelete.concat(
+                allEntries.slice(0, entriesToRemove).map(entry => entry[0])
+            );
+        }
+        
+        keysToDelete.forEach(key => this.cache.delete(key));
+        
+        if (keysToDelete.length > 0) {
+            logger.debug(`Smart cache cleanup: removed ${keysToDelete.length} entries, cache size now: ${this.cache.size}`);
+        }
     }
     
     get(key) {
@@ -63,34 +99,12 @@ class APICache {
         return item.data;
     }
     
+    // No size limits - only memory-based cleanup
     set(key, data) {
-        // Implement LRU-style eviction when cache is full
-        if (this.cache.size >= this.maxSize) {
-            const firstKey = this.cache.keys().next().value;
-            this.cache.delete(firstKey);
-        }
-        
         this.cache.set(key, {
             data,
             timestamp: Date.now()
         });
-    }
-    
-    cleanup() {
-        const now = Date.now();
-        const keysToDelete = [];
-        
-        for (const [key, item] of this.cache.entries()) {
-            if (now - item.timestamp > this.maxAge) {
-                keysToDelete.push(key);
-            }
-        }
-        
-        keysToDelete.forEach(key => this.cache.delete(key));
-        
-        if (keysToDelete.length > 0) {
-            logger.debug(`API cache cleanup: removed ${keysToDelete.length} expired entries`);
-        }
     }
     
     destroy() {
@@ -101,15 +115,290 @@ class APICache {
     }
     
     getStats() {
+        const memoryUsage = process.memoryUsage();
         return {
             size: this.cache.size,
-            maxSize: this.maxSize,
+            memoryUsage: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`,
             maxAge: this.maxAge
         };
     }
 }
 
-const apiCache = new APICache();
+// Adaptive concurrency management
+class AdaptiveConcurrencyManager {
+    constructor() {
+        this.currentLimit = 10; // Start higher
+        this.minLimit = 1;
+        this.maxLimit = 50;
+        this.successRate = 1.0;
+        this.recentRequests = [];
+        this.adjustmentInterval = setInterval(() => this.adjustConcurrency(), 30000); // Every 30 seconds
+    }
+    
+    recordRequest(success, responseTime) {
+        const now = Date.now();
+        this.recentRequests.push({ success, responseTime, timestamp: now });
+        
+        // Keep only last 100 requests
+        this.recentRequests = this.recentRequests
+            .filter(req => now - req.timestamp < 60000) // Last minute
+            .slice(-100);
+    }
+    
+    adjustConcurrency() {
+        if (this.recentRequests.length < 10) return; // Need sufficient data
+        
+        const successCount = this.recentRequests.filter(req => req.success).length;
+        this.successRate = successCount / this.recentRequests.length;
+        const avgResponseTime = this.recentRequests.reduce((sum, req) => sum + req.responseTime, 0) / this.recentRequests.length;
+        
+        // Increase concurrency if high success rate and fast responses
+        if (this.successRate > 0.95 && avgResponseTime < 2000 && this.currentLimit < this.maxLimit) {
+            this.currentLimit = Math.min(this.currentLimit + 2, this.maxLimit);
+            processingLogger.debug(`Increased concurrency to ${this.currentLimit} (success rate: ${(this.successRate * 100).toFixed(1)}%)`);
+        }
+        // Decrease concurrency if low success rate or slow responses
+        else if ((this.successRate < 0.8 || avgResponseTime > 5000) && this.currentLimit > this.minLimit) {
+            this.currentLimit = Math.max(this.currentLimit - 1, this.minLimit);
+            processingLogger.debug(`Decreased concurrency to ${this.currentLimit} (success rate: ${(this.successRate * 100).toFixed(1)}%)`);
+        }
+    }
+    
+    getLimit() {
+        return pLimit(this.currentLimit);
+    }
+    
+    destroy() {
+        if (this.adjustmentInterval) {
+            clearInterval(this.adjustmentInterval);
+        }
+    }
+}
+
+// Dynamic batch processing
+class DynamicBatchProcessor {
+    constructor() {
+        this.currentBatchSize = 50;
+        this.minBatchSize = 10;
+        this.maxBatchSize = 200;
+        this.successCount = 0;
+        this.failureCount = 0;
+    }
+    
+    adjustBatchSize(success) {
+        if (success) {
+            this.successCount++;
+            this.failureCount = 0;
+            
+            // Increase batch size after 3 consecutive successes
+            if (this.successCount >= 3 && this.currentBatchSize < this.maxBatchSize) {
+                this.currentBatchSize = Math.min(this.currentBatchSize + 10, this.maxBatchSize);
+                this.successCount = 0;
+                processingLogger.debug(`Increased batch size to ${this.currentBatchSize}`);
+            }
+        } else {
+            this.failureCount++;
+            this.successCount = 0;
+            
+            // Decrease batch size immediately on failure
+            if (this.currentBatchSize > this.minBatchSize) {
+                this.currentBatchSize = Math.max(this.currentBatchSize - 10, this.minBatchSize);
+                processingLogger.debug(`Decreased batch size to ${this.currentBatchSize} due to failure`);
+            }
+        }
+    }
+    
+    getBatchSize() {
+        return this.currentBatchSize;
+    }
+}
+
+// PERFORMANCE OPTIMIZATION: Add adaptive concurrency control
+const adaptiveConcurrency = new AdaptiveConcurrencyManager();
+let concurrencyLimit = adaptiveConcurrency.getLimit();
+
+// ================================
+// ROBUST API CALLING WITH UNLIMITED RETRIES
+// ================================
+
+// Robust API calling with exponential backoff
+async function robustApiCall(url, options = {}, maxRetries = 5) {
+    const baseTimeout = 30000; // Start with 30 seconds
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const timeout = baseTimeout * Math.pow(1.5, attempt); // Exponential increase
+            const startTime = Date.now();
+            
+            const response = await axios.get(url, {
+                ...options,
+                timeout: timeout,
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'BRC-420-Complete-Indexer/1.0',
+                    ...options.headers
+                }
+            });
+            
+            const responseTime = Date.now() - startTime;
+            adaptiveConcurrency.recordRequest(true, responseTime);
+            
+            return response;
+            
+        } catch (error) {
+            const isLastAttempt = attempt === maxRetries - 1;
+            adaptiveConcurrency.recordRequest(false, baseTimeout);
+            
+            if (isLastAttempt) {
+                throw new Error(`API call failed after ${maxRetries} attempts: ${error.message}`);
+            }
+            
+            // Exponential backoff delay
+            const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30 second delay
+            processingLogger.warn(`API call attempt ${attempt + 1} failed, retrying in ${delay}ms: ${error.message}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+// ================================
+// UNLIMITED INSCRIPTION FETCHING
+// ================================
+
+// Get ALL inscriptions for a block with NO LIMITS
+async function getInscriptionsForBlock(blockHeight) {
+    processingLogger.debug(`Fetching ALL inscriptions for block ${blockHeight} with NO LIMITS`);
+    
+    let allInscriptions = [];
+    let page = 0;
+    let hasMorePages = true;
+    let consecutiveEmptyPages = 0;
+    const MAX_CONSECUTIVE_EMPTY = 3; // Stop after 3 consecutive empty responses
+    
+    while (hasMorePages) {
+        try {
+            const response = await robustApiCall(`${API_URL}/inscriptions/block/${blockHeight}`, {
+                params: { page: page }
+            });
+
+            const responseData = response.data;
+            const inscriptions = Array.isArray(responseData) ? responseData : (responseData.ids || []);
+            
+            if (inscriptions.length === 0) {
+                consecutiveEmptyPages++;
+                if (consecutiveEmptyPages >= MAX_CONSECUTIVE_EMPTY) {
+                    processingLogger.info(`No more inscriptions found after ${page} pages for block ${blockHeight}`);
+                    hasMorePages = false;
+                }
+            } else {
+                consecutiveEmptyPages = 0;
+                allInscriptions = allInscriptions.concat(inscriptions);
+                processingLogger.debug(`Page ${page}: Found ${inscriptions.length} inscriptions (total: ${allInscriptions.length})`);
+            }
+            
+            page++;
+            
+            // Add progressive delay for large blocks to avoid overwhelming APIs
+            if (page % 50 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                processingLogger.info(`Processed ${page} pages for block ${blockHeight}, total inscriptions: ${allInscriptions.length}`);
+            }
+            
+        } catch (error) {
+            if (error.response && error.response.status === 404) {
+                // 404 means no more pages
+                hasMorePages = false;
+            } else {
+                processingLogger.error(`Error fetching page ${page} for block ${blockHeight}: ${error.message}`);
+                // Implement exponential backoff retry
+                await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, page % 5), 10000)));
+                // Don't increment page on error, retry the same page
+                continue;
+            }
+        }
+    }
+    
+    processingLogger.info(`COMPLETE: Block ${blockHeight} has ${allInscriptions.length} total inscriptions across ${page} pages`);
+    return allInscriptions;
+}
+
+// ================================
+// UNLIMITED INSCRIPTION PROCESSING
+// ================================
+
+// Process all inscriptions with dynamic batching and NO LIMITS
+async function processAllInscriptionsCompletely(inscriptionIds, blockHeight) {
+    const batchProcessor = new DynamicBatchProcessor();
+    let processedCount = 0;
+    let results = [];
+    
+    processingLogger.info(`Starting COMPLETE processing of ${inscriptionIds.length} inscriptions in block ${blockHeight} with NO LIMITS`);
+    
+    while (processedCount < inscriptionIds.length) {
+        const batchSize = batchProcessor.getBatchSize();
+        const batch = inscriptionIds.slice(processedCount, processedCount + batchSize);
+        
+        try {
+            // Update concurrency limit dynamically
+            concurrencyLimit = adaptiveConcurrency.getLimit();
+            
+            const batchResults = await Promise.allSettled(
+                batch.map(inscriptionId => 
+                    concurrencyLimit(() => processInscriptionWithRetry(inscriptionId, blockHeight))
+                )
+            );
+            
+            results = results.concat(batchResults);
+            processedCount += batch.length;
+            batchProcessor.adjustBatchSize(true);
+            
+            processingLogger.debug(`Block ${blockHeight}: Processed ${processedCount}/${inscriptionIds.length} inscriptions (batch size: ${batchSize})`);
+            
+        } catch (error) {
+            batchProcessor.adjustBatchSize(false);
+            processingLogger.error(`Batch processing error for block ${blockHeight}:`, error.message);
+            
+            // Process failed batch one by one to ensure no data loss
+            for (const inscriptionId of batch) {
+                try {
+                    const result = await processInscriptionWithRetry(inscriptionId, blockHeight);
+                    results.push({ status: 'fulfilled', value: result });
+                } catch (singleError) {
+                    results.push({ status: 'rejected', reason: singleError });
+                }
+                processedCount++;
+            }
+        }
+    }
+    
+    processingLogger.info(`COMPLETE: Finished processing all ${processedCount} inscriptions in block ${blockHeight}`);
+    return results;
+}
+
+// Process inscription with comprehensive retry logic
+async function processInscriptionWithRetry(inscriptionId, blockHeight, maxRetries = 3) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            return await processInscription(inscriptionId, blockHeight);
+        } catch (error) {
+            const isLastAttempt = attempt === maxRetries - 1;
+            
+            if (isLastAttempt) {
+                logger.error(`Failed to process inscription ${inscriptionId} after ${maxRetries} attempts:`, { message: error.message });
+                
+                // Save failed inscription for manual review
+                await saveFailedInscription(inscriptionId, blockHeight, error.message);
+                return null;
+            }
+            
+            const delay = 1000 * Math.pow(2, attempt);
+            logger.warn(`Inscription ${inscriptionId} processing attempt ${attempt + 1} failed, retrying in ${delay}ms`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+const apiCache = new UnlimitedAPICache();
 
 // PERFORMANCE OPTIMIZATION: Cached API functions to reduce redundant calls
 async function getDeployerAddressCached(inscriptionId) {
@@ -118,7 +407,7 @@ async function getDeployerAddressCached(inscriptionId) {
     if (cached !== null) return cached;
     
     try {
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
+        const response = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
             headers: { 'Accept': 'application/json' }
         });
         const address = response.data.address || null;
@@ -136,22 +425,19 @@ async function getInscriptionContentCached(inscriptionId) {
     if (cached !== null) return cached;
     
     // Try multiple API endpoints for better content fetching
-    const endpoints = [
-        `${API_URL}/content/${inscriptionId}`,           // Primary endpoint
-        `${API_URL}/inscription/${inscriptionId}/content`, // Alternative path
-        `https://ordinals.com/content/${inscriptionId}`,   // Explicit ordinals.com
+    const endpoints = useLocalAPI ? [
+        `${API_URL}/content/${inscriptionId}`,
+        `${API_URL}/inscription/${inscriptionId}/content`,
+    ] : [
+        `${API_URL}/content/${inscriptionId}`,
+        `https://ordinals.com/content/${inscriptionId}`,
     ];
     
     for (const endpoint of endpoints) {
         try {
             processingLogger.debug(`Trying content endpoint: ${endpoint.substring(0, 50)}...`);
-            const response = await axios.get(endpoint, {
-                headers: { 
-                    'Accept': 'text/plain, application/json, */*',
-                    'User-Agent': 'BRC-420-Indexer/1.0'
-                },
-                responseType: 'text',
-                timeout: 15000
+            const response = await robustApiCall(endpoint, {
+                responseType: 'text'
             });
             
             const content = response.data || '';
@@ -161,13 +447,13 @@ async function getInscriptionContentCached(inscriptionId) {
                 return content;
             }
         } catch (error) {
-            processingLogger.debug(`Endpoint failed: ${error.message}`);
+            processingLogger.debug(`Endpoint ${endpoint} failed: ${error.message}`);
             continue; // Try next endpoint
         }
     }
     
     // If all endpoints fail, log the issue but return empty string to continue processing
-    processingLogger.warn(`Could not fetch content for inscription ${inscriptionId} from any endpoint`);
+    processingLogger.warn(`Could not fetch content for inscription ${inscriptionId} from any endpoint after all retries`);
     apiCache.set(cacheKey, '');
     return '';
 }
@@ -177,13 +463,13 @@ async function getInscriptionDetailsCached(inscriptionId) {
     
     try {
         // Check cache first
-        if (apiCache.has(cacheKey)) {
-            return apiCache.get(cacheKey);
+        const cached = apiCache.get(cacheKey);
+        if (cached !== null) {
+            return cached;
         }
 
         // Try ord API endpoint for inscription details
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}`, {
-            timeout: 10000,
+        const response = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
             headers: { 'Accept': 'application/json' }
         });
 
@@ -427,6 +713,18 @@ function initializeIndexerDb() {
                         
                         // Initialize database batcher for performance optimization
                         dbBatcher = new DatabaseBatcher(db);
+                        
+                        // Initialize BitmapProcessor for clean bitmap and parcel handling
+                        bitmapProcessor = new BitmapProcessor(
+                            db, 
+                            logger, 
+                            processingLogger, 
+                            API_URL, 
+                            getInscriptionDetailsCached, 
+                            getMintAddress
+                        );
+                        logger.info('BitmapProcessor initialized successfully');
+                        
                         resolve();
                     });
                 }
@@ -705,7 +1003,7 @@ function convertInscriptionIdToTxId(inscriptionId) {
 // Function to validate royalty payment for mints (checks the mint transaction, not deploy)
 async function validateMintRoyaltyPayment(deployInscription, mintAddress, mintTransactionId) {
     try {
-        const response = await axios.get(`${config.getMempoolApiUrl()}/tx/${mintTransactionId}`, {
+        const response = await robustApiCall(`${config.getMempoolApiUrl()}/tx/${mintTransactionId}`, {
             headers: { 'Accept': 'application/json' }
         });
 
@@ -758,7 +1056,7 @@ async function validateMintContentType(mintInscriptionId, sourceInscriptionId) {
 async function validateRoyaltyPayment(deployInscription, mintAddress) {
     try {
         const transactionId = convertInscriptionIdToTxId(deployInscription.id);
-        const response = await axios.get(`${config.getMempoolApiUrl()}/tx/${transactionId}/vout`, {
+        const response = await robustApiCall(`${config.getMempoolApiUrl()}/tx/${transactionId}/vout`, {
             headers: { 'Accept': 'application/json' }
         });
 
@@ -945,7 +1243,7 @@ async function getBitmapInscriptionId(bitmapNumber) {
 // Function to validate parcel provenance by checking if it's a child of the bitmap
 async function validateParcelProvenance(parcelInscriptionId, bitmapInscriptionId) {
     try {
-        const response = await axios.get(`${API_URL}/children/${bitmapInscriptionId}`, {
+        const response = await robustApiCall(`${API_URL}/children/${bitmapInscriptionId}`, {
             headers: { 'Accept': 'application/json' }
         });
 
@@ -988,18 +1286,16 @@ async function getBlockTransactionCount(blockHeight) {
         for (const apiUrl of apis) {
             try {
                 // First get block hash
-                const hashResponse = await axios.get(apiUrl, {
-                    headers: { 'Accept': 'text/plain' },
-                    timeout: 5000
+                const hashResponse = await robustApiCall(apiUrl, {
+                    headers: { 'Accept': 'text/plain' }
                 });
                 
                 const blockHash = hashResponse.data.trim();
                 
                 // Then get full block info
                 const blockInfoUrl = apiUrl.replace(`/block-height/${blockHeight}`, `/block/${blockHash}`);
-                const blockResponse = await axios.get(blockInfoUrl, {
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 5000
+                const blockResponse = await robustApiCall(blockInfoUrl, {
+                    headers: { 'Accept': 'application/json' }
                 });
 
                 const transactionCount = blockResponse.data.tx_count || blockResponse.data.transaction_count;
@@ -1351,34 +1647,30 @@ async function processInscription(inscriptionId, blockHeight) {
 
 // Function to process a block
 async function processBlock(blockHeight) {
-    processingLogger.info(`Processing block: ${blockHeight}`);
-    try {        const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
-            headers: { 'Accept': 'application/json' },
-            timeout: 10000
-        });
-
-        const responseData = response.data;
+    const startTime = Date.now();
+    processingLogger.info(`Starting COMPLETE processing of block: ${blockHeight} with NO LIMITS`);
+    
+    try {
+        // Get ALL inscriptions for this block with no limits
+        const allInscriptions = await getInscriptionsForBlock(blockHeight);
         
-        // Handle both array format (old API) and object format (new API with pagination)
-        const inscriptions = Array.isArray(responseData) ? responseData : (responseData.ids || []);        if (Array.isArray(inscriptions) && inscriptions.length > 0) {
-            processingLogger.info(`Total inscriptions found in block ${blockHeight}: ${inscriptions.length}`);
+        if (allInscriptions.length > 0) {
+            processingLogger.info(`Block ${blockHeight}: Processing ALL ${allInscriptions.length} inscriptions with NO LIMITS`);
             
             let mintCount = 0;
             let deployCount = 0;
             let bitmapCount = 0;
             let parcelCount = 0;
+            let failedCount = 0;
             
             // Get transaction count for this block
             const transactionCount = await getBlockTransactionCount(blockHeight);
             
             // Log mint detection stats
-            logMintDetectionStats(blockHeight, inscriptions);
-              // PERFORMANCE IMPROVEMENT: Process inscriptions concurrently with rate limiting
-            const results = await Promise.allSettled(
-                inscriptions.map(inscriptionId => 
-                    concurrencyLimit(() => processInscription(inscriptionId, blockHeight))
-                )
-            );
+            logMintDetectionStats(blockHeight, allInscriptions);
+            
+            // Process ALL inscriptions with unlimited processing
+            const results = await processAllInscriptionsCompletely(allInscriptions, blockHeight);
             
             // Count results
             results.forEach(result => {
@@ -1388,6 +1680,7 @@ async function processBlock(blockHeight) {
                     else if (result.value.type === 'bitmap') bitmapCount++;
                     else if (result.value.type === 'parcel') parcelCount++;
                 } else if (result.status === 'rejected') {
+                    failedCount++;
                     logger.error(`Error processing inscription:`, { message: result.reason?.message || result.reason });
                 }
             });
@@ -1396,36 +1689,48 @@ async function processBlock(blockHeight) {
             await saveBlockStats(
                 blockHeight, 
                 transactionCount || 0, 
-                inscriptions.length, 
+                allInscriptions.length, 
                 deployCount, 
                 mintCount, 
                 bitmapCount, 
                 parcelCount
             );
             
-            processingLogger.info(`Block ${blockHeight} processed. Transactions: ${transactionCount || 'Unknown'}, Inscriptions: ${inscriptions.length}, Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}, Parcels: ${parcelCount}`);
+            const processingTime = Date.now() - startTime;
+            const completenessRate = ((allInscriptions.length - failedCount) / allInscriptions.length * 100).toFixed(2);
             
-            // Log cache performance every 10 blocks for monitoring
+            processingLogger.info(`Block ${blockHeight} COMPLETELY processed in ${processingTime}ms (${Math.round(processingTime/1000)}s)`);
+            processingLogger.info(`COMPLETENESS: ${completenessRate}% (${allInscriptions.length - failedCount}/${allInscriptions.length})`);
+            processingLogger.info(`Results: Transactions: ${transactionCount || 'Unknown'}, Inscriptions: ${allInscriptions.length}, Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}, Parcels: ${parcelCount}, Failed: ${failedCount}`);
+            
+            // Log cache and performance stats every 10 blocks
             if (blockHeight % 10 === 0) {
                 const cacheStats = apiCache.getStats();
-                processingLogger.info(`Performance stats at block ${blockHeight}: Cache ${cacheStats.size}/${cacheStats.maxSize} entries, Concurrency limit: ${config.CONCURRENCY_LIMIT || 5}`);
+                const concurrentLimit = adaptiveConcurrency.currentLimit;
+                processingLogger.info(`Performance stats at block ${blockHeight}: Cache ${cacheStats.size} entries (${cacheStats.memoryUsage}), Adaptive concurrency: ${concurrentLimit}`);
             }
+            
         } else {
             // Even if no inscriptions, save block stats with transaction count
             const transactionCount = await getBlockTransactionCount(blockHeight);
             await saveBlockStats(blockHeight, transactionCount || 0, 0, 0, 0, 0, 0);
-            processingLogger.info(`No inscriptions found in block ${blockHeight}. Transactions: ${transactionCount || 'Unknown'}`);
+            
+            const processingTime = Date.now() - startTime;
+            processingLogger.info(`No inscriptions found in block ${blockHeight}. Transactions: ${transactionCount || 'Unknown'} (processed in ${processingTime}ms)`);
         }
+        
     } catch (error) {
-        logger.error(`Error processing block ${blockHeight}:`, { message: error.message });
+        logger.error(`Error in COMPLETE processing of block ${blockHeight}:`, { message: error.message });
         
         // If we're using local API and get network error, try switching to external
         if (useLocalAPI && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT')) {
             logger.info('Local API failed, switching to external API for future requests');
             API_URL = config.getApiUrl(); // Switch back to external API
             useLocalAPI = false;
-        }        
+        }
+        
         logErrorBlock(blockHeight);
+        throw error; // Re-throw to ensure block is marked for retry
     }
     
     // PERFORMANCE OPTIMIZATION: Flush any remaining batched operations
@@ -1631,9 +1936,8 @@ async function checkAndUpdateInscriptionOwnership(inscriptionId, blockHeight) {
 async function trackInscriptionTransfers(blockHeight) {
     try {
         // Get all inscriptions in the block
-        const response = await axios.get(`${API_URL}/inscriptions/block/${blockHeight}`, {
-            headers: { 'Accept': 'application/json' },
-            timeout: 10000
+        const response = await robustApiCall(`${API_URL}/inscriptions/block/${blockHeight}`, {
+            headers: { 'Accept': 'application/json' }
         });
 
         const inscriptions = response.data || [];
@@ -1836,13 +2140,13 @@ async function getInscriptionTransactionsCached(inscriptionId) {
     
     try {
         // Check cache first
-        if (apiCache.has(cacheKey)) {
-            return apiCache.get(cacheKey);
+        const cached = apiCache.get(cacheKey);
+        if (cached !== null) {
+            return cached;
         }
 
         // Try ord API endpoint
-        const response = await axios.get(`${API_URL}/inscription/${inscriptionId}/transactions`, {
-            timeout: 10000,
+        const response = await robustApiCall(`${API_URL}/inscription/${inscriptionId}/transactions`, {
             headers: { 'Accept': 'application/json' }
         });
 
