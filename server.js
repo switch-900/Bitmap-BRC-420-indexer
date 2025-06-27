@@ -146,7 +146,7 @@ function setupDatabaseSchema(db, callback) {
     
     db.serialize(() => {
         let tablesCreated = 0;
-        const totalTables = 9; // Added block_stats and failed_inscriptions tables
+        const totalTables = 10; // Added block_stats, failed_inscriptions, and parcels tables
         
         function checkCompletion() {
             tablesCreated++;
@@ -164,6 +164,10 @@ function setupDatabaseSchema(db, callback) {
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_address ON bitmaps(address)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_sat ON bitmaps(sat)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_parcels_parcel_number ON parcels(parcel_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_parcels_bitmap_number ON parcels(bitmap_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_parcels_block_height ON parcels(block_height)',
+                    'CREATE INDEX IF NOT EXISTS idx_parcels_address ON parcels(address)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
                     'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
                     'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',
@@ -294,6 +298,25 @@ function setupDatabaseSchema(db, callback) {
             UNIQUE(block_height)
         )`, [], () => {
             console.log('Block stats table created or already exists');
+            checkCompletion();
+        });
+
+        // Create parcels table for bitmap parcel tracking
+        safeDbRun(`CREATE TABLE IF NOT EXISTS parcels (
+            inscription_id TEXT PRIMARY KEY,
+            parcel_number INTEGER NOT NULL,
+            bitmap_number INTEGER NOT NULL,
+            bitmap_inscription_id TEXT,
+            content TEXT NOT NULL,
+            address TEXT NOT NULL,
+            block_height INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            transaction_count INTEGER,
+            is_valid BOOLEAN DEFAULT 1,
+            wallet TEXT,
+            UNIQUE(inscription_id)
+        )`, [], () => {
+            console.log('Parcels table created or already exists');
             checkCompletion();
         });
 
