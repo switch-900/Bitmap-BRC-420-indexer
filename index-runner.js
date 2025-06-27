@@ -508,23 +508,47 @@ async function getInscriptionDetailsCached(inscriptionId) {
         }
 
         // Try ord API endpoint for inscription details
-        const response = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
+        // Always try local API first if available
+        let inscriptionResponse = null;
+        
+        // If we have a local API, try it first
+        if (useLocalAPI && API_URL.includes('ordinals_web_1')) {
+            try {
+                inscriptionResponse = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+            } catch (localError) {
+                logger.debug(`Local API failed for inscription ${inscriptionId}, trying fallback: ${localError.message}`);
+            }
+        }
+        
+        // Fallback to configured API_URL if local failed or not available
+        if (!inscriptionResponse) {
+            inscriptionResponse = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+        }
 
-        if (response.data) {
+        if (inscriptionResponse && inscriptionResponse.data) {
             const details = {
-                id: response.data.id,
-                address: response.data.address, // Current holder address
-                sat: response.data.sat, // Sat number
-                satpoint: response.data.satpoint,
-                timestamp: response.data.timestamp,
-                height: response.data.height,
-                content_type: response.data.content_type,
-                content_length: response.data.content_length,
-                fee: response.data.fee,
-                value: response.data.value
+                id: inscriptionResponse.data.id,
+                address: inscriptionResponse.data.address, // Current holder address
+                sat: inscriptionResponse.data.sat, // Sat number
+                satpoint: inscriptionResponse.data.satpoint,
+                timestamp: inscriptionResponse.data.timestamp,
+                height: inscriptionResponse.data.height,
+                content_type: inscriptionResponse.data.content_type,
+                content_length: inscriptionResponse.data.content_length,
+                fee: inscriptionResponse.data.fee,
+                value: inscriptionResponse.data.value
             };
+
+            // Log when we successfully get sat number
+            if (details.sat) {
+                logger.debug(`✅ Got sat number for ${inscriptionId}: ${details.sat}`);
+            } else {
+                logger.debug(`⚠️ No sat number for ${inscriptionId} (API returned null)`);
+            }
 
             // Cache the result
             apiCache.set(cacheKey, details);
@@ -653,6 +677,35 @@ async function testLocalAPIConnectivity() {
     
     logger.info('❌ No local Ordinals API found on any endpoint, using external API: https://ordinals.com');
     logger.info('💡 To use a local Ordinals service, ensure an Ordinals app is installed and running on your Umbrel');
+    
+    // Force test the Docker endpoint that's most likely to work on Umbrel
+    const forceTestEndpoints = [
+        'http://ordinals_web_1:4000',
+        'http://ordinals_server_1:4000'
+    ];
+    
+    logger.info('🔍 Testing force endpoints for Ordinals API...');
+    for (const endpoint of forceTestEndpoints) {
+        try {
+            // Try a simple inscription endpoint that should exist
+            const testInscriptionId = 'f74cb8cee101149ac5c4f8853f32e40c76b690cef7f0b51d98a864e2be65763ci0'; // Bitmap #2015
+            const response = await axios.get(`${endpoint}/inscription/${testInscriptionId}`, {
+                timeout: 10000,
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            if (response.status === 200 && response.data && response.data.id) {
+                logger.info(`✅ Found Ordinals API at: ${endpoint} (via inscription test)`);
+                logger.info(`🎯 Inscription test returned sat: ${response.data.sat || 'null'}`);
+                API_URL = endpoint;
+                useLocalAPI = true;
+                return true;
+            }
+        } catch (error) {
+            logger.debug(`❌ Force test failed ${endpoint}: ${error.message}`);
+        }
+    }
+    
     return false;
 }
 

@@ -174,6 +174,93 @@
             border-radius: 12px;
             font-size: 0.9em;
         }
+
+        .bitmap-pattern-display {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .pattern-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .pattern-info-item {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .pattern-info-label {
+            font-weight: bold;
+            color: #6c757d;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .pattern-info-value {
+            font-size: 1.1em;
+            color: #007bff;
+        }
+
+        .transaction-pattern {
+            background: white;
+            border-radius: 6px;
+            padding: 15px;
+            border: 1px solid #e9ecef;
+            margin-top: 15px;
+        }
+
+        .pattern-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .pattern-array {
+            font-family: 'Courier New', monospace;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+            word-break: break-all;
+            line-height: 1.6;
+            font-size: 0.9em;
+        }
+
+        .pattern-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .pattern-stat {
+            background: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        .mondrian-preview {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        .mondrian-canvas {
+            border: 1px solid #ddd;
+            margin: 10px auto;
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -258,6 +345,25 @@
             </div>
             <div id="high-activity-content">
                 <div class="loading">Loading high activity blocks...</div>
+            </div>
+        </div>
+
+        <!-- Bitmap Pattern Analyzer -->
+        <div class="high-activity-section">
+            <h3>🎨 Bitmap Pattern Analyzer</h3>
+            <p>Explore transaction patterns and Mondrian visualizations for bitmaps.</p>
+            
+            <div class="filters-section">
+                <div class="filter-group">
+                    <label for="bitmap-number-input">Bitmap Number:</label>
+                    <input type="number" id="bitmap-number-input" placeholder="e.g., 2015" min="0">
+                </div>
+                <button class="btn" onclick="loadBitmapPattern()">Load Pattern</button>
+                <button class="btn btn-secondary" onclick="loadRandomBitmapPattern()">Random Bitmap</button>
+            </div>
+
+            <div id="bitmap-pattern-content">
+                <div class="loading">Enter a bitmap number to view its transaction pattern</div>
             </div>
         </div>
     </div>
@@ -484,6 +590,202 @@
             document.getElementById('limit').value = '50';
             currentPage = 1;
             loadBlockStats();
+        }
+
+        async function loadBitmapPattern() {
+            const bitmapNumber = document.getElementById('bitmap-number-input').value;
+            
+            if (!bitmapNumber) {
+                alert('Please enter a bitmap number');
+                return;
+            }
+
+            try {
+                document.getElementById('bitmap-pattern-content').innerHTML = 
+                    '<div class="loading">Loading bitmap pattern data...</div>';
+
+                // Load both bitmap info and pattern data
+                const [bitmapResponse, patternResponse] = await Promise.all([
+                    fetch(`/api/bitmaps/number/${bitmapNumber}`),
+                    fetch(`/api/bitmap/${bitmapNumber}/pattern`)
+                ]);
+
+                if (!bitmapResponse.ok) {
+                    throw new Error(`Bitmap #${bitmapNumber} not found`);
+                }
+
+                const bitmapData = await bitmapResponse.json();
+                let patternData = null;
+
+                if (patternResponse.ok) {
+                    patternData = await patternResponse.json();
+                }
+
+                displayBitmapPattern(bitmapData, patternData, bitmapNumber);
+
+            } catch (error) {
+                document.getElementById('bitmap-pattern-content').innerHTML = 
+                    `<div class="error">Error loading bitmap pattern: ${error.message}</div>`;
+            }
+        }
+
+        async function loadRandomBitmapPattern() {
+            try {
+                document.getElementById('bitmap-pattern-content').innerHTML = 
+                    '<div class="loading">Loading random bitmap...</div>';
+
+                // Get a random bitmap from the database
+                const response = await fetch('/api/bitmaps?limit=1&sort=random');
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load random bitmap');
+                }
+
+                const data = await response.json();
+                
+                if (!data.bitmaps || data.bitmaps.length === 0) {
+                    throw new Error('No bitmaps found in database');
+                }
+
+                const randomBitmap = data.bitmaps[0];
+                document.getElementById('bitmap-number-input').value = randomBitmap.bitmap_number;
+                
+                // Load the pattern for this bitmap
+                await loadBitmapPattern();
+
+            } catch (error) {
+                document.getElementById('bitmap-pattern-content').innerHTML = 
+                    `<div class="error">Error loading random bitmap: ${error.message}</div>`;
+            }
+        }
+
+        function displayBitmapPattern(bitmapData, patternData, bitmapNumber) {
+            const bitmap = Array.isArray(bitmapData) ? bitmapData[0] : bitmapData;
+            
+            if (!bitmap) {
+                document.getElementById('bitmap-pattern-content').innerHTML = 
+                    `<div class="error">Bitmap #${bitmapNumber} not found</div>`;
+                return;
+            }
+
+            let patternHtml = `
+                <div class="bitmap-pattern-display">
+                    <h4>🎨 Bitmap #${bitmap.bitmap_number} Pattern Analysis</h4>
+                    
+                    <div class="pattern-info">
+                        <div class="pattern-info-item">
+                            <div class="pattern-info-label">Inscription ID</div>
+                            <div class="pattern-info-value">${bitmap.inscription_id.substring(0, 20)}...</div>
+                        </div>
+                        <div class="pattern-info-item">
+                            <div class="pattern-info-label">Address</div>
+                            <div class="pattern-info-value">${bitmap.address.substring(0, 20)}...</div>
+                        </div>
+                        <div class="pattern-info-item">
+                            <div class="pattern-info-label">Block Height</div>
+                            <div class="pattern-info-value">${bitmap.block_height.toLocaleString()}</div>
+                        </div>
+                        <div class="pattern-info-item">
+                            <div class="pattern-info-label">Sat Number</div>
+                            <div class="pattern-info-value">${bitmap.sat ? bitmap.sat.toLocaleString() : 'N/A'}</div>
+                        </div>
+                    </div>
+            `;
+
+            if (patternData && patternData.pattern_string) {
+                const txArray = patternData.pattern_string.split('').map(Number);
+                const uniqueValues = [...new Set(txArray)];
+                const maxValue = Math.max(...txArray);
+                const minValue = Math.min(...txArray);
+                const avgValue = (txArray.reduce((a, b) => a + b, 0) / txArray.length).toFixed(2);
+
+                patternHtml += `
+                    <div class="transaction-pattern">
+                        <div class="pattern-title">📊 Transaction Pattern Array</div>
+                        <div class="pattern-array">[${txArray.join(', ')}]</div>
+                        
+                        <div class="pattern-stats">
+                            <div class="pattern-stat">Length: ${txArray.length}</div>
+                            <div class="pattern-stat">Unique Values: ${uniqueValues.length}</div>
+                            <div class="pattern-stat">Range: ${minValue} - ${maxValue}</div>
+                            <div class="pattern-stat">Average: ${avgValue}</div>
+                        </div>
+                    </div>
+
+                    <div class="transaction-pattern">
+                        <div class="pattern-title">🎨 Pattern Visualization</div>
+                        <div class="mondrian-preview">
+                            <canvas id="mondrian-canvas-${bitmap.bitmap_number}" 
+                                    class="mondrian-canvas" 
+                                    width="400" 
+                                    height="400"></canvas>
+                            <div style="margin-top: 10px; color: #6c757d; font-size: 0.9em;">
+                                Mondrian-style visualization based on transaction pattern
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Generate Mondrian visualization
+                setTimeout(() => {
+                    generateMondrianVisualization(`mondrian-canvas-${bitmap.bitmap_number}`, txArray);
+                }, 100);
+
+            } else {
+                patternHtml += `
+                    <div class="transaction-pattern">
+                        <div class="pattern-title">⚠️ Pattern Data</div>
+                        <div style="color: #856404; background: #fff3cd; padding: 10px; border-radius: 4px;">
+                            No transaction pattern data available for this bitmap. 
+                            Pattern data is generated during bitmap processing.
+                        </div>
+                    </div>
+                `;
+            }
+
+            patternHtml += '</div>';
+            document.getElementById('bitmap-pattern-content').innerHTML = patternHtml;
+        }
+
+        function generateMondrianVisualization(canvasId, txArray) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+
+            // Mondrian-inspired colors
+            const colors = ['#FF0000', '#0000FF', '#FFFF00', '#FFFFFF', '#000000'];
+            
+            // Create grid based on transaction pattern
+            const gridSize = Math.ceil(Math.sqrt(txArray.length));
+            const cellWidth = width / gridSize;
+            const cellHeight = height / gridSize;
+
+            // Draw cells based on transaction values
+            for (let i = 0; i < txArray.length && i < gridSize * gridSize; i++) {
+                const row = Math.floor(i / gridSize);
+                const col = i % gridSize;
+                const value = txArray[i];
+                
+                const x = col * cellWidth;
+                const y = row * cellHeight;
+                
+                // Map transaction value to color
+                const colorIndex = value % colors.length;
+                ctx.fillStyle = colors[colorIndex];
+                ctx.fillRect(x, y, cellWidth, cellHeight);
+                
+                // Add border
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, cellWidth, cellHeight);
+            }
         }
 
         // Auto-refresh every 30 seconds

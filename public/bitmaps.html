@@ -351,6 +351,69 @@
             word-break: break-all;
         }
 
+        .pattern-section {
+            grid-column: 1 / -1;
+            background: rgba(0, 255, 255, 0.05);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 10px;
+        }
+
+        .pattern-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #00ffff;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pattern-array {
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            word-break: break-all;
+            line-height: 1.6;
+            font-size: 13px;
+            color: #e0e0e0;
+            margin-bottom: 15px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .pattern-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .pattern-stat {
+            background: rgba(0, 255, 255, 0.1);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+        }
+
+        .pattern-stat-label {
+            display: block;
+            font-size: 10px;
+            color: #aaa;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .pattern-stat-value {
+            display: block;
+            font-weight: bold;
+            color: #00ffff;
+        }
+
         /* Loading and Pagination */
         .loading {
             text-align: center;
@@ -832,6 +895,42 @@
             }
 
             // Show details
+            const hasPattern = bitmap.txList && Array.isArray(bitmap.txList) && bitmap.txList.length > 0;
+            let patternSection = '';
+            
+            if (hasPattern) {
+                const txArray = bitmap.txList;
+                const uniqueValues = [...new Set(txArray)];
+                const maxValue = Math.max(...txArray);
+                const minValue = Math.min(...txArray);
+                const avgValue = (txArray.reduce((a, b) => a + b, 0) / txArray.length).toFixed(2);
+                
+                patternSection = `
+                    <div class="pattern-section">
+                        <div class="pattern-title">📊 Transaction Pattern Array</div>
+                        <div class="pattern-array">[${txArray.join(', ')}]</div>
+                        <div class="pattern-stats">
+                            <div class="pattern-stat">
+                                <span class="pattern-stat-label">Length</span>
+                                <span class="pattern-stat-value">${txArray.length}</span>
+                            </div>
+                            <div class="pattern-stat">
+                                <span class="pattern-stat-label">Unique Values</span>
+                                <span class="pattern-stat-value">${uniqueValues.length}</span>
+                            </div>
+                            <div class="pattern-stat">
+                                <span class="pattern-stat-label">Range</span>
+                                <span class="pattern-stat-value">${minValue} - ${maxValue}</span>
+                            </div>
+                            <div class="pattern-stat">
+                                <span class="pattern-stat-label">Average</span>
+                                <span class="pattern-stat-value">${avgValue}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
             details.innerHTML = `
                 <div class="detail-item">
                     <div class="detail-label">Bitmap Number</div>
@@ -865,6 +964,7 @@
                     <div class="detail-label">Transaction Count</div>
                     <div class="detail-value">${bitmap.transaction_count || bitmap.txList?.length || 'N/A'}</div>
                 </div>
+                ${patternSection}
             `;
 
             modal.style.display = 'block';

@@ -350,14 +350,53 @@ router.get('/bitmaps', (req, res) => {
         return res.status(500).json({ error: 'Database not available' });
     }
     
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, sort = 'bitmap_number_desc' } = req.query;
     const offset = (page - 1) * limit;
 
-    db.all("SELECT * FROM bitmaps LIMIT ? OFFSET ?", [limit, offset], (err, rows) => {
+    // Build ORDER BY clause
+    let orderBy = 'ORDER BY bitmap_number DESC'; // Default
+    
+    switch (sort) {
+        case 'bitmap_number_asc':
+            orderBy = 'ORDER BY bitmap_number ASC';
+            break;
+        case 'bitmap_number_desc':
+            orderBy = 'ORDER BY bitmap_number DESC';
+            break;
+        case 'block_height_asc':
+            orderBy = 'ORDER BY block_height ASC';
+            break;
+        case 'block_height_desc':
+            orderBy = 'ORDER BY block_height DESC';
+            break;
+        case 'random':
+            orderBy = 'ORDER BY RANDOM()';
+            break;
+        default:
+            orderBy = 'ORDER BY bitmap_number DESC';
+    }
+
+    const query = `SELECT * FROM bitmaps ${orderBy} LIMIT ? OFFSET ?`;
+
+    db.all(query, [limit, offset], (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
-        return res.json(rows);
+        
+        // Get total count for pagination
+        db.get("SELECT COUNT(*) as total FROM bitmaps", (countErr, countRow) => {
+            if (countErr) {
+                return res.status(500).json({ error: countErr.message });
+            }
+            
+            return res.json({
+                bitmaps: rows,
+                total: countRow.total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total_pages: Math.ceil(countRow.total / limit)
+            });
+        });
     });
 });
 
