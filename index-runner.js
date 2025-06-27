@@ -272,7 +272,7 @@ async function getInscriptionsForBlock(blockHeight) {
     let allInscriptions = [];
     let hasMore = true;
     let pageNumber = 0; // Track which page we're on (0-based internally)
-    const maxPages = 1000; // Safety limit to prevent infinite loops
+    const maxPages = 10000; // Safety limit to prevent infinite loops
     const seenInscriptions = new Set(); // Track unique inscriptions to detect duplicates
     
     while (hasMore && pageNumber < maxPages) {
@@ -540,27 +540,6 @@ async function getInscriptionDetailsCached(inscriptionId) {
 }
 
 // Function to get current wallet address (where inscription is now)
-async function getCurrentWalletAddress(inscriptionId) {
-    try {
-        const details = await getInscriptionDetailsCached(inscriptionId);
-        return details ? details.address : null;
-    } catch (error) {
-        logger.error(`Error getting current wallet for ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
-}
-
-// Function to get sat number from inscription
-async function getSatNumber(inscriptionId) {
-    try {
-        const details = await getInscriptionDetailsCached(inscriptionId);
-        return details ? details.sat : null;
-    } catch (error) {
-        logger.error(`Error getting sat number for ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
-}
-
 // PERFORMANCE OPTIMIZATION: Batch database operations
 class DatabaseBatcher {
     constructor(db) {
@@ -927,65 +906,6 @@ async function saveMint(mintData) {
 }
 
 // Function to save bitmap data
-async function saveBitmap(bitmapData) {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // Check if bitmap already exists
-            const existingBitmap = await new Promise((resolveDb, rejectDb) => {
-                db.get("SELECT bitmap_number FROM bitmaps WHERE bitmap_number = ?", [bitmapData.bitmap_number], (err, row) => {
-                    if (err) rejectDb(err);
-                    else resolveDb(row);
-                });
-            });
-
-            if (existingBitmap) {
-                logger.info(`Bitmap ${bitmapData.bitmap_number} already exists. Skipping.`);
-                resolve(false);
-                return;
-            }
-
-            // Fetch inscription details to get sat number and current wallet
-            const inscriptionDetails = await getInscriptionDetailsCached(bitmapData.inscription_id);
-            const satNumber = inscriptionDetails ? inscriptionDetails.sat : null;
-            const currentWallet = inscriptionDetails ? inscriptionDetails.address : bitmapData.address;
-            
-            const stmt = db.prepare("INSERT INTO bitmaps (inscription_id, bitmap_number, content, address, timestamp, block_height, sat, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            stmt.run([
-                bitmapData.inscription_id, 
-                bitmapData.bitmap_number, 
-                bitmapData.content, 
-                bitmapData.address, // Original mint address
-                bitmapData.timestamp, 
-                bitmapData.block_height, 
-                satNumber, // Sat number from ordinals API
-                currentWallet // Current holder address
-            ], function(err) {
-                if (err) {
-                    logger.error(`Error saving bitmap ${bitmapData.bitmap_number}:`, { message: err.message });
-                    reject(err);
-                } else {
-                    logger.info(`Bitmap ${bitmapData.bitmap_number} saved to database.`);
-                    saveOrUpdateWallet(bitmapData.inscription_id, bitmapData.address, 'bitmap');
-                    
-                    // Generate bitmap pattern for visualization (async without await)
-                    generateBitmapPattern(bitmapData.bitmap_number, bitmapData.inscription_id)
-                        .then(() => {
-                            logger.info(`Pattern generation completed for bitmap ${bitmapData.bitmap_number}`);
-                        })
-                        .catch(patternError => {
-                            logger.warn(`Failed to generate pattern for bitmap ${bitmapData.bitmap_number}:`, { message: patternError.message });
-                        });
-                    
-                    resolve(true);
-                }
-            });
-        } catch (error) {
-            logger.error(`Error in saveBitmap for ${bitmapData.bitmap_number}:`, { message: error.message });
-            reject(error);
-        }
-    });
-}
-
 // Function to log block in error table
 function logErrorBlock(blockHeight) {
     const stmt = db.prepare("INSERT OR REPLACE INTO error_blocks (block_height, error_message, retry_count, retry_at) VALUES (?, ?, 0, ?)");
@@ -1024,16 +944,6 @@ async function getMintAddress(inscriptionId) {
 }
 
 // Function to get deployer address (using cached API call)
-async function getDeployerAddress(inscriptionId) {
-    try {
-        const details = await getInscriptionDetailsCached(inscriptionId);
-        return details ? details.address : null;
-    } catch (error) {
-        logger.error(`Error getting deployer address for ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
-}
-
 // Function to convert inscription ID to transaction ID
 function convertInscriptionIdToTxId(inscriptionId) {
     return inscriptionId.split('i')[0];
@@ -1092,28 +1002,7 @@ async function validateMintContentType(mintInscriptionId, sourceInscriptionId) {
 }
 
 // Function to validate royalty payment
-async function validateRoyaltyPayment(deployInscription, mintAddress) {
-    try {
-        const transactionId = convertInscriptionIdToTxId(deployInscription.id);
-        const response = await robustApiCall(`${config.getMempoolApiUrl()}/tx/${transactionId}/vout`, {
-            headers: { 'Accept': 'application/json' }
-        });
 
-        const outputs = response.data;
-        const royaltyPayment = outputs.find(output => 
-            output.scriptpubkey_address === deployInscription.deployer_address && 
-            output.value >= deployInscription.price * 100000000
-        );
-
-        const isValidRoyalty = !!royaltyPayment;
-        logger.info(`Royalty validation for deploy ${deployInscription.id}: ${isValidRoyalty ? 'VALID' : 'INVALID'}`);
-        return isValidRoyalty;
-
-    } catch (error) {
-        logger.error(`Error validating royalty payment for deploy ${deployInscription.id}:`, { message: error.message });
-        return false;
-    }
-}
 
 // Function to get current mint count
 async function getCurrentMintCount(deployId) {
@@ -1148,153 +1037,6 @@ async function validateMintData(mintId, deployInscription, mintAddress, transact
 
     } catch (error) {
         logger.error(`Error validating mint data for ${mintId}:`, { message: error.message });
-        return false;
-    }
-}
-
-// Helper function to validate bitmap format
-function isValidBitmapFormat(content) {
-    const bitmapRegex = /^\d+\.bitmap$/;
-    return bitmapRegex.test(content.trim());
-}
-
-
-
-// Function to save parcel data with tie-breaker logic
-async function saveParcel(parcelData) {
-    return new Promise((resolve, reject) => {
-        // Check if this exact inscription already exists
-        db.get("SELECT inscription_id FROM parcels WHERE inscription_id = ?", [parcelData.inscription_id], (err, row) => {
-            if (err) {
-                logger.error(`Error checking if parcel ${parcelData.inscription_id} exists:`, { message: err.message });
-                reject(err);
-            } else if (row) {
-                logger.info(`Parcel ${parcelData.inscription_id} already exists. Skipping.`);
-                resolve(false);
-            } else {
-                // Check for duplicate parcel number within the same bitmap
-                db.get(`
-                    SELECT inscription_id, block_height, timestamp 
-                    FROM parcels 
-                    WHERE parcel_number = ? AND bitmap_number = ? 
-                    ORDER BY block_height ASC, inscription_id ASC 
-                    LIMIT 1
-                `, [parcelData.parcel_number, parcelData.bitmap_number], (err, existingParcel) => {
-                    if (err) {
-                        logger.error(`Error checking for duplicate parcel number:`, { message: err.message });
-                        reject(err);
-                        return;
-                    }
-                    
-                    // If a parcel with this number already exists, apply tie-breaker rules
-                    if (existingParcel) {
-                        const shouldReplace = 
-                            parcelData.block_height < existingParcel.block_height || 
-                            (parcelData.block_height === existingParcel.block_height && 
-                             parcelData.inscription_id < existingParcel.inscription_id);
-                        
-                        if (shouldReplace) {
-                            // Remove the existing parcel and insert the new one (first wins)
-                            db.run("DELETE FROM parcels WHERE inscription_id = ?", [existingParcel.inscription_id], (deleteErr) => {
-                                if (deleteErr) {
-                                    logger.error(`Error removing superseded parcel ${existingParcel.inscription_id}:`, { message: deleteErr.message });
-                                    reject(deleteErr);
-                                    return;
-                                }
-                                
-                                logger.info(`Replacing parcel ${existingParcel.inscription_id} with earlier parcel ${parcelData.inscription_id} (tie-breaker applied)`);
-                                
-                                // Insert the new parcel
-                                insertParcelData(parcelData, resolve, reject);
-                            });
-                        } else {
-                            logger.info(`Parcel ${parcelData.inscription_id} loses tie-breaker to existing parcel ${existingParcel.inscription_id} for number ${parcelData.parcel_number}.${parcelData.bitmap_number}`);
-                            resolve(false);
-                        }
-                    } else {
-                        // No duplicate, proceed with normal insert
-                        insertParcelData(parcelData, resolve, reject);
-                    }
-                });
-            }
-        });
-    });
-}
-
-// Helper function to insert parcel data
-function insertParcelData(parcelData, resolve, reject) {
-    const stmt = db.prepare("INSERT INTO parcels (inscription_id, parcel_number, bitmap_number, bitmap_inscription_id, content, address, block_height, timestamp, transaction_count, is_valid, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    stmt.run([
-        parcelData.inscription_id, 
-        parcelData.parcel_number, 
-        parcelData.bitmap_number, 
-        parcelData.bitmap_inscription_id, 
-        parcelData.content, 
-        parcelData.address, 
-        parcelData.block_height, 
-        parcelData.timestamp, 
-        parcelData.transaction_count, 
-        parcelData.is_valid,
-        parcelData.address
-    ], function(err) {
-        if (err) {
-            logger.error(`Error saving parcel ${parcelData.inscription_id}:`, { message: err.message });
-            reject(err);
-        } else {
-            logger.info(`Parcel ${parcelData.inscription_id} saved to database.`);
-            saveOrUpdateWallet(parcelData.inscription_id, parcelData.address, 'parcel');
-            resolve(true);
-        }
-    });
-}
-
-// Function to validate parcel format and get bitmap inscription ID
-function parseParcelContent(content) {
-    const parts = content.trim().split('.');
-    if (parts.length !== 3 || parts[2] !== 'bitmap') {
-        return null;
-    }
-    
-    const parcelNumber = parseInt(parts[0], 10);
-    const bitmapNumber = parseInt(parts[1], 10);
-    
-    if (isNaN(parcelNumber) || isNaN(bitmapNumber) || parcelNumber < 0 || bitmapNumber < 0) {
-        return null;
-    }
-    
-    return { parcelNumber, bitmapNumber };
-}
-
-// Function to get bitmap inscription ID from bitmap number
-async function getBitmapInscriptionId(bitmapNumber) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT inscription_id FROM bitmaps WHERE bitmap_number = ?", [bitmapNumber], (err, row) => {
-            if (err) {
-                logger.error(`Error fetching bitmap inscription ID for bitmap ${bitmapNumber}:`, { message: err.message });
-                reject(err);
-            } else {
-                resolve(row ? row.inscription_id : null);
-            }
-        });
-    });
-}
-
-// Function to validate parcel provenance by checking if it's a child of the bitmap
-async function validateParcelProvenance(parcelInscriptionId, bitmapInscriptionId) {
-    try {
-        const response = await robustApiCall(`${API_URL}/children/${bitmapInscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        // Check if the parcel inscription is in the children list
-        const children = response.data.ids || [];
-        const isValidChild = children.includes(parcelInscriptionId);
-        
-        logger.info(`Parcel provenance validation for ${parcelInscriptionId}: ${isValidChild ? 'VALID' : 'INVALID'} (parent: ${bitmapInscriptionId})`);
-        return isValidChild;
-
-    } catch (error) {
-        logger.error(`Error validating parcel provenance for ${parcelInscriptionId}:`, { message: error.message });
         return false;
     }
 }
@@ -1379,22 +1121,47 @@ async function getBlockTransactionCount(blockHeight) {
     }
 }
 
+// Function to save block statistics to the database
+async function saveBlockStats(blockHeight, totalTransactions, totalInscriptions, deployCount, mintCount, bitmapCount, parcelCount) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO block_stats (
+                block_height, 
+                total_transactions, 
+                total_inscriptions, 
+                brc420_deploys, 
+                brc420_mints, 
+                bitmaps, 
+                parcels, 
+                processed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run([
+            blockHeight,
+            totalTransactions,
+            totalInscriptions,
+            deployCount,
+            mintCount,
+            bitmapCount,
+            parcelCount,
+            Date.now()
+        ], function(err) {
+            if (err) {
+                logger.error(`Error saving block stats for block ${blockHeight}:`, { message: err.message });
+                reject(err);
+            } else {
+                logger.debug(`Block stats saved for block ${blockHeight}: transactions=${totalTransactions}, inscriptions=${totalInscriptions}, deploys=${deployCount}, mints=${mintCount}, bitmaps=${bitmapCount}, parcels=${parcelCount}`);
+                resolve(this.changes);
+            }
+        });
+        
+        stmt.finalize();
+    });
+}
+
 // Function to validate parcel number against block transaction count
-function validateParcelNumber(parcelNumber, transactionCount) {
-    if (transactionCount === null || transactionCount === undefined) {
-        // If we can't get transaction count, we allow the parcel but mark it for later validation
-        return true;
-    }
-    
-    return parcelNumber >= 0 && parcelNumber < transactionCount;
-}
-
 // Helper function to validate parcel format
-function isValidParcelFormat(content) {
-    const parcelRegex = /^\d+\.\d+\.bitmap$/;
-    return parcelRegex.test(content.trim());
-}
-
 // DEBUGGING: Comprehensive content analysis function
 function analyzeInscriptionContent(inscriptionId, content, blockHeight) {
     const analysis = {
@@ -1949,28 +1716,6 @@ async function checkAndUpdateInscriptionOwnership(inscriptionId, blockHeight) {
 }
 
 // Function to track transfers for all known inscriptions in a block
-async function trackInscriptionTransfers(blockHeight) {
-    try {
-        // Get all inscriptions in the block
-        const response = await robustApiCall(`${API_URL}/inscriptions/block/${blockHeight}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        const inscriptions = response.data || [];
-        
-        processingLogger.info(`Tracking transfers for ${inscriptions.length} inscriptions in block ${blockHeight}`);
-        
-        for (const inscription of inscriptions) {
-            const inscriptionId = inscription.id;
-            
-            // Check and update ownership
-            await checkAndUpdateInscriptionOwnership(inscriptionId, blockHeight);
-        }
-    } catch (error) {
-        logger.error(`Error tracking inscription transfers in block ${blockHeight}:`, { message: error.message });
-    }
-}
-
 // Function to track transfers for only our known inscriptions (more efficient)
 async function trackKnownInscriptionTransfers(blockHeight) {
     try {        // Get all our known inscriptions from the database
