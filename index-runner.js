@@ -265,60 +265,99 @@ async function robustApiCall(url, options = {}, maxRetries = 5) {
 // UNLIMITED INSCRIPTION FETCHING
 // ================================
 
-// Get ALL inscriptions for a block with NO LIMITS
+// Get ALL inscriptions for a block using the block-specific endpoint with proper pagination
 async function getInscriptionsForBlock(blockHeight) {
-    processingLogger.debug(`Fetching ALL inscriptions for block ${blockHeight} with NO LIMITS`);
+    processingLogger.debug(`Fetching all inscriptions for block ${blockHeight} with pagination`);
     
     let allInscriptions = [];
-    let page = 0;
-    let hasMorePages = true;
-    let consecutiveEmptyPages = 0;
-    const MAX_CONSECUTIVE_EMPTY = 3; // Stop after 3 consecutive empty responses
+    let hasMore = true;
+    let pageNumber = 0; // Track which page we're on (0-based internally)
+    const maxPages = 1000; // Safety limit to prevent infinite loops
+    const seenInscriptions = new Set(); // Track unique inscriptions to detect duplicates
     
-    while (hasMorePages) {
+    while (hasMore && pageNumber < maxPages) {
         try {
-            const response = await robustApiCall(`${API_URL}/inscriptions/block/${blockHeight}`, {
-                params: { page: page }
-            });
-
+            // First page (pageNumber=0) has no page parameter, subsequent pages use page=1, page=2, etc.
+            const url = pageNumber === 0 
+                ? `${API_URL}/inscriptions/block/${blockHeight}`
+                : `${API_URL}/inscriptions/block/${blockHeight}?page=${pageNumber}`;
+                
+            processingLogger.debug(`Fetching page ${pageNumber} for block ${blockHeight}: ${url}`);
+            
+            const response = await robustApiCall(url);
             const responseData = response.data;
+            
+            // Extract inscription IDs from the response
             const inscriptions = Array.isArray(responseData) ? responseData : (responseData.ids || []);
+            hasMore = responseData.more === true;
+            const currentPageIndex = responseData.page_index !== undefined ? responseData.page_index : pageNumber;
             
-            if (inscriptions.length === 0) {
-                consecutiveEmptyPages++;
-                if (consecutiveEmptyPages >= MAX_CONSECUTIVE_EMPTY) {
-                    processingLogger.info(`No more inscriptions found after ${page} pages for block ${blockHeight}`);
-                    hasMorePages = false;
+            processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Found ${inscriptions.length} inscriptions (more=${hasMore}, page_index=${currentPageIndex})`);
+            
+            if (inscriptions.length === 0 && pageNumber === 0) {
+                processingLogger.info(`Block ${blockHeight}: No inscriptions found in this block`);
+                break;
+            }
+            
+            if (inscriptions.length === 0 && pageNumber > 0) {
+                processingLogger.info(`Block ${blockHeight}: No more inscriptions found on page ${pageNumber}, stopping pagination`);
+                break;
+            }
+            
+            // Check for duplicate inscriptions (API bug detection)
+            let newInscriptions = 0;
+            let duplicateInscriptions = 0;
+            
+            for (const inscription of inscriptions) {
+                if (!seenInscriptions.has(inscription)) {
+                    seenInscriptions.add(inscription);
+                    allInscriptions.push(inscription);
+                    newInscriptions++;
+                } else {
+                    duplicateInscriptions++;
                 }
-            } else {
-                consecutiveEmptyPages = 0;
-                allInscriptions = allInscriptions.concat(inscriptions);
-                processingLogger.debug(`Page ${page}: Found ${inscriptions.length} inscriptions (total: ${allInscriptions.length})`);
             }
             
-            page++;
-            
-            // Add progressive delay for large blocks to avoid overwhelming APIs
-            if (page % 50 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                processingLogger.info(`Processed ${page} pages for block ${blockHeight}, total inscriptions: ${allInscriptions.length}`);
+            if (duplicateInscriptions > 0) {
+                processingLogger.warn(`Block ${blockHeight}, Page ${pageNumber}: Found ${duplicateInscriptions} duplicate inscriptions (possible API pagination bug)`);
             }
+            
+            processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Added ${newInscriptions} new inscriptions (${duplicateInscriptions} duplicates ignored)`);
+            
+            // If more=false, we're done
+            if (!hasMore) {
+                processingLogger.info(`Block ${blockHeight}: API indicates no more pages (more=false)`);
+                break;
+            }
+            
+            // If we got no new inscriptions and there were duplicates, the API might be stuck
+            if (newInscriptions === 0 && duplicateInscriptions > 0) {
+                processingLogger.warn(`Block ${blockHeight}: Page ${pageNumber} returned only duplicates, assuming pagination is complete`);
+                break;
+            }
+            
+            // Move to next page
+            pageNumber++;
+            
+            // Small delay between requests to avoid overwhelming the API
+            await new Promise(resolve => setTimeout(resolve, 100));
             
         } catch (error) {
             if (error.response && error.response.status === 404) {
-                // 404 means no more pages
-                hasMorePages = false;
+                processingLogger.info(`Block ${blockHeight} not found (404) - likely no inscriptions in this block`);
+                break;
             } else {
-                processingLogger.error(`Error fetching page ${page} for block ${blockHeight}: ${error.message}`);
-                // Implement exponential backoff retry
-                await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, page % 5), 10000)));
-                // Don't increment page on error, retry the same page
-                continue;
+                processingLogger.error(`Error fetching inscriptions for block ${blockHeight}, page ${pageNumber}: ${error.message}`);
+                throw error;
             }
         }
     }
     
-    processingLogger.info(`COMPLETE: Block ${blockHeight} has ${allInscriptions.length} total inscriptions across ${page} pages`);
+    if (pageNumber >= maxPages) {
+        processingLogger.warn(`Block ${blockHeight}: Reached maximum page limit (${maxPages}), stopping pagination`);
+    }
+    
+    processingLogger.info(`Block ${blockHeight}: Retrieved ${allInscriptions.length} total unique inscriptions across ${pageNumber} pages`);
     return allInscriptions;
 }
 
@@ -1566,75 +1605,21 @@ async function processInscription(inscriptionId, blockHeight) {
                 processingLogger.debug(`Content starts with /content/ but doesn't match BRC-420 mint pattern: ${inscriptionId} -> ${trimmedContent}`);
             }
         } else if (content.includes('.bitmap')) {
-            // Check for parcel format first (more specific than bitmap format)
-            if (isValidParcelFormat(content)) {
-                const parcelInfo = parseParcelContent(content);
-                if (parcelInfo) {
-                    processingLogger.info(`Potential parcel detected: ${inscriptionId} -> ${content.trim()}`);
-                    
-                    // Get the bitmap inscription ID from our database
-                    const bitmapInscriptionId = await getBitmapInscriptionId(parcelInfo.bitmapNumber);
-                    
-                    if (bitmapInscriptionId) {
-                        processingLogger.info(`Found bitmap inscription for parcel ${inscriptionId}: ${bitmapInscriptionId}`);
-                          // Validate provenance by checking parent-child relationship
-                        const isValidProvenance = await validateParcelProvenance(inscriptionId, bitmapInscriptionId);
-                        
-                        if (isValidProvenance) {
-                            const address = await getDeployerAddressCached(inscriptionId);
-                            // Get transaction count for the CURRENT block (where parcel is inscribed)
-                            const transactionCount = await getBlockTransactionCount(blockHeight);
-                            const isValidNumber = validateParcelNumber(parcelInfo.parcelNumber, transactionCount);
-                            
-                            if (address && isValidNumber) {
-                                const saved = await saveParcel({
-                                    inscription_id: inscriptionId,
-                                    parcel_number: parcelInfo.parcelNumber,
-                                    bitmap_number: parcelInfo.bitmapNumber,
-                                    bitmap_inscription_id: bitmapInscriptionId,
-                                    content: content.trim(),
-                                    address: address,
-                                    block_height: blockHeight,
-                                    timestamp: Date.now(),
-                                    transaction_count: transactionCount,
-                                    is_valid: 1
-                                });
-                                
-                                if (saved) {
-                                    processingLogger.info(`Valid parcel saved: ${inscriptionId}`);
-                                    return { type: 'parcel' };
-                                }
-                            } else {
-                                processingLogger.info(`Parcel validation failed for ${inscriptionId}: address=${!!address}, validNumber=${isValidNumber}`);
-                            }
-                        } else {
-                            processingLogger.info(`Parcel provenance validation failed for ${inscriptionId}: not a child of bitmap ${bitmapInscriptionId}`);
-                        }
-                    } else {
-                        processingLogger.debug(`No bitmap found for parcel ${inscriptionId} with bitmap number ${parcelInfo.bitmapNumber}`);
-                    }
-                }
-            }
-            // Check for regular bitmap format
-            else if (isValidBitmapFormat(content)) {
-                const bitmapNumber = parseInt(content.split('.')[0], 10);
-                if (!isNaN(bitmapNumber) && bitmapNumber >= 0 && bitmapNumber <= blockHeight) {
-                    const mintAddress = await getDeployerAddressCached(inscriptionId);
-                    if (mintAddress) {
-                        const saved = await saveBitmap({
-                            inscription_id: inscriptionId,
-                            bitmap_number: bitmapNumber,
-                            content: content,
-                            address: mintAddress, // Original mint address
-                            timestamp: Date.now(),
-                            block_height: blockHeight
-                        });
-                        if (saved) {
-                            processingLogger.info(`Bitmap saved: ${inscriptionId}`);
-                            return { type: 'bitmap' };
-                        }
-                    }
-                }
+            // Use BitmapProcessor for clean bitmap and parcel processing
+            processingLogger.info(`Bitmap/parcel content detected: ${inscriptionId} -> ${content.trim()}`);
+            
+            const result = await bitmapProcessor.processBitmapOrParcel(
+                content.trim(), 
+                inscriptionId, 
+                blockHeight, 
+                getBlockTransactionCount
+            );
+            
+            if (result) {
+                processingLogger.info(`${result.type} processed successfully: ${result.id}`);
+                return result;
+            } else {
+                processingLogger.debug(`Bitmap/parcel processing failed or skipped for: ${inscriptionId}`);
             }
         }
 
