@@ -28,11 +28,8 @@ services:
       # Umbrel service discovery - these will be automatically detected
       - ORD_API_URL=http://ordinals_web_1:4000
       - API_WALLET_URL=http://mempool_web_1:3006/api
-      # Bitcoin RPC connection to Umbrel's Bitcoin Core
-      - BITCOIN_RPC_HOST=${APP_BITCOIN_NODE_IP}
-      - BITCOIN_RPC_PORT=8332
-      - BITCOIN_RPC_USER=${APP_BITCOIN_RPC_USER}
-      - BITCOIN_RPC_PASS=${APP_BITCOIN_RPC_PASS}
+      # HTTP API only configuration for Umbrel (no Bitcoin RPC)
+      - USE_LOCAL_APIS_ONLY=true
       # Umbrel device info
       - DEVICE_HOSTNAME=${DEVICE_HOSTNAME}
       - DEVICE_DOMAIN_NAME=${DEVICE_DOMAIN_NAME}

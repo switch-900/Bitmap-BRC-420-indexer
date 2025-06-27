@@ -56,6 +56,7 @@ router.get('/config', (req, res) => {
     const configData = {
         localOrdinalsUrl: config.getLocalOrdinalsUrl(),
         isUmbrelEnvironment: config.isUmbrelEnvironment(),
+        useLocalApisOnly: config.useLocalApisOnly(),
         startBlock: config.START_BLOCK
     };
     res.json(configData);

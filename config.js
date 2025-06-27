@@ -1,15 +1,13 @@
 require('dotenv').config();
 
-module.exports = {    // Primary API URLs - prefer local Umbrel services if available
+module.exports = {
+    // Primary API URLs - prefer local Umbrel services if available
     ORD_API_URL: process.env.ORD_API_URL || null, // Will be tested dynamically
     API_URL: process.env.API_URL || 'https://ordinals.com',
     API_WALLET_URL: process.env.API_WALLET_URL || null, // Will be tested dynamically for Umbrel patterns
     
-    // Bitcoin RPC connection for direct node access
-    BITCOIN_RPC_HOST: process.env.BITCOIN_RPC_HOST || null,
-    BITCOIN_RPC_PORT: parseInt(process.env.BITCOIN_RPC_PORT) || 8332,
-    BITCOIN_RPC_USER: process.env.BITCOIN_RPC_USER || null,
-    BITCOIN_RPC_PASS: process.env.BITCOIN_RPC_PASS || null,
+    // HTTP API configuration - only use local HTTP APIs on Umbrel
+    USE_LOCAL_APIS_ONLY: process.env.USE_LOCAL_APIS_ONLY === 'true' || process.env.UMBREL_ROOT, // Detect Umbrel environment
       // Indexing configuration - optimized for local node
     START_BLOCK: parseInt(process.env.START_BLOCK) || 792435, // first brc-420 in block 807604 first bitmap in block 792435
     RETRY_BLOCK_DELAY: parseInt(process.env.RETRY_BLOCK_DELAY) || 1, // Reduced delay for local node
@@ -27,7 +25,12 @@ module.exports = {    // Primary API URLs - prefer local Umbrel services if avai
     
     // Determine if we're running in Umbrel environment
     isUmbrelEnvironment() {
-        return !!(this.BITCOIN_RPC_HOST && this.BITCOIN_RPC_USER && this.BITCOIN_RPC_PASS);
+        return !!(process.env.UMBREL_ROOT || process.env.USE_LOCAL_APIS_ONLY === 'true');
+    },
+    
+    // Check if we should use only local APIs
+    useLocalApisOnly() {
+        return this.USE_LOCAL_APIS_ONLY || this.isUmbrelEnvironment();
     },    // Get the appropriate API URL based on environment
     getApiUrl() {
         // Always prioritize the fallback API_URL for reliability
@@ -137,16 +140,20 @@ module.exports = {    // Primary API URLs - prefer local Umbrel services if avai
             endpoints.push(`http://${process.env.DEVICE_HOSTNAME}.${process.env.DEVICE_DOMAIN_NAME}:3006/api`);
         }
         
-        // Legacy/fallback endpoints (including external API)
+        // Legacy/fallback endpoints
         const fallbackEndpoints = [
             'http://umbrel.local:3006/api',
             'http://10.21.21.27:3006/api',      // Official Umbrel mempool API IP
             'http://10.21.21.26:3006/api',      // Official Umbrel mempool main IP
             'http://172.17.0.1:3006/api',       // Docker gateway
             'http://localhost:3006/api',
-            'http://127.0.0.1:3006/api',
-            'https://mempool.space/api'         // External fallback
+            'http://127.0.0.1:3006/api'
         ];
+        
+        // Only add external API if not in Umbrel environment
+        if (!this.useLocalApisOnly()) {
+            fallbackEndpoints.push('https://mempool.space/api'); // External fallback
+        }
         
         // Combine all endpoints with official patterns first
         endpoints.push(...officialUmbrelMempoolEndpoints, ...fallbackEndpoints);
@@ -160,7 +167,13 @@ module.exports = {    // Primary API URLs - prefer local Umbrel services if avai
         if (process.env.API_WALLET_URL) {
             return process.env.API_WALLET_URL;
         }
-          // Default fallback to external API - will be tested dynamically for local services
+        
+        // If in Umbrel environment, don't use external API by default
+        if (this.useLocalApisOnly()) {
+            return null; // Will trigger endpoint testing
+        }
+        
+        // Default fallback to external API - will be tested dynamically for local services
         return 'https://mempool.space/api';
     }
 };

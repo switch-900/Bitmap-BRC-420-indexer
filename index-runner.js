@@ -1315,12 +1315,29 @@ async function getBlockTransactionCount(blockHeight) {
             return cachedStats.total_transactions;
         }
 
-        // Try multiple Bitcoin APIs to get block info
-        const apis = [
-            `https://blockstream.info/api/block-height/${blockHeight}`,
-            `https://mempool.space/api/block-height/${blockHeight}`,
-            `${config.getMempoolApiUrl()}/block-height/${blockHeight}`
-        ];
+        // Try local HTTP APIs only (no external APIs)
+        const localMempoolUrl = config.getMempoolApiUrl();
+        const apis = [];
+        
+        // Only add local mempool API if it's not an external URL
+        if (localMempoolUrl && !localMempoolUrl.includes('mempool.space') && !localMempoolUrl.includes('blockstream.info')) {
+            apis.push(`${localMempoolUrl}/block-height/${blockHeight}`);
+        }
+        
+        // Try to find local mempool endpoints dynamically
+        const testEndpoints = config.getMempoolApiEndpoints();
+        for (const endpoint of testEndpoints) {
+            if (!endpoint.includes('mempool.space') && !endpoint.includes('blockstream.info')) {
+                apis.push(`${endpoint}/block-height/${blockHeight}`);
+            }
+        }
+        
+        logger.debug(`Trying ${apis.length} local APIs for block ${blockHeight} transaction count`);
+        
+        if (apis.length === 0) {
+            logger.warn(`No local APIs available for block transaction count. Consider configuring API_WALLET_URL to point to local mempool instance.`);
+            return 0; // Return 0 to indicate no local API available
+        }
 
         for (const apiUrl of apis) {
             try {
@@ -1652,7 +1669,21 @@ async function processBlock(blockHeight) {
             const transactionCount = await getBlockTransactionCount(blockHeight);
             
             // Log mint detection stats
-            logMintDetectionStats(blockHeight, allInscriptions);
+            // Log mint detection stats
+            const bitmapMints = allInscriptions.filter(i => i.content_type && 
+                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
+                i.content && (i.content.includes('bitmap') || i.content.includes('Bitmap')));
+            const parcelMints = allInscriptions.filter(i => i.content_type && 
+                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
+                i.content && (i.content.includes('parcel') || i.content.includes('Parcel')));
+            const brc420Mints = allInscriptions.filter(i => i.content_type && 
+                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
+                i.content && (i.content.includes('brc-420') || i.content.includes('BRC-420')));
+            
+            logger.info(`Mint detection for block ${blockHeight}: ${bitmapMints.length} bitmap, ${parcelMints.length} parcel, ${brc420Mints.length} BRC-420`);
+            if (bitmapMints.length > 0 || parcelMints.length > 0 || brc420Mints.length > 0) {
+                logger.info(`Total mint detections: ${bitmapMints.length + parcelMints.length + brc420Mints.length} inscriptions`);
+            }
             
             // Process ALL inscriptions with unlimited processing
             const results = await processAllInscriptionsCompletely(allInscriptions, blockHeight);
@@ -1999,6 +2030,14 @@ async function processAndTrackBlock(blockHeight) {
 module.exports = {
     async startIndexer() {
         await initializeIndexerDb();
+        
+        // Log configuration mode
+        if (config.useLocalApisOnly()) {
+            logger.info('🔒 Running in LOCAL APIs ONLY mode (no external APIs will be used)');
+            logger.info('📡 Will only use local Ordinals and Mempool HTTP APIs');
+        } else {
+            logger.info('🌐 Running in HYBRID mode (local APIs preferred, external fallback available)');
+        }
         
         // Test local API connectivity before starting
         await testLocalAPIConnectivity();
