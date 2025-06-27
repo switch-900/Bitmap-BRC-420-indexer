@@ -351,12 +351,22 @@ async function startServer() {
         res.sendFile(path.join(__dirname, 'public', 'bitmaps.html'));
     });
 
-    // Health check endpoint
+    // Health check endpoint with more detailed status
     app.get('/health', (req, res) => {
         res.status(200).json({ 
             status: 'healthy', 
             timestamp: new Date().toISOString(),
-            service: 'BRC-420 Indexer'
+            service: 'BRC-420 Indexer',
+            version: '1.0.0',
+            ready: true
+        });
+    });
+
+    // Ready check endpoint for containers
+    app.get('/ready', (req, res) => {
+        res.status(200).json({ 
+            ready: true,
+            timestamp: new Date().toISOString() 
         });
     });
 
@@ -369,23 +379,37 @@ async function startServer() {
     app.use((err, req, res, next) => {
         console.error('Unhandled error:', err);
         res.status(500).json({ error: 'Internal server error' });
-    });    // Start the server
-    app.listen(PORT, '0.0.0.0', () => {
+    });    // Start the server with better error handling
+    const server = app.listen(PORT, '0.0.0.0', () => {
         console.log(`BRC-420 Indexer web server running on http://0.0.0.0:${PORT}`);
         console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
         console.log(`RUN_INDEXER: ${config.RUN_INDEXER}`);
         
-        // Start the indexer process if enabled
-        if (config.RUN_INDEXER) {
-            console.log('Starting Bitcoin inscription indexer process...');
-            setTimeout(() => {
-                startIndexerProcess().catch(error => {
-                    console.error('Error starting indexer process:', error);
-                });
-            }, 2000); // Wait 2 seconds for server to fully start
-        } else {
-            console.log('Indexer process disabled (RUN_INDEXER=false)');
-        }    });
+        // Add a small delay to ensure server is fully ready
+        setTimeout(() => {
+            console.log('Server is ready to accept connections');
+            
+            // Start the indexer process if enabled
+            if (config.RUN_INDEXER) {
+                console.log('Starting Bitcoin inscription indexer process...');
+                setTimeout(() => {
+                    startIndexerProcess().catch(error => {
+                        console.error('Failed to start indexer process:', error.message);
+                        console.log('Indexer will retry automatically...');
+                    });
+                }, 2000); // 2 second delay before starting indexer
+            }
+        }, 1000); // 1 second delay for server readiness
+    });
+
+    // Handle server errors
+    server.on('error', (err) => {
+        console.error('Server error:', err);
+        if (err.code === 'EADDRINUSE') {
+            console.error(`Port ${PORT} is already in use`);
+            process.exit(1);
+        }
+    });
 }
 
 // Function to start the indexer process

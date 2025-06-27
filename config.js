@@ -79,8 +79,6 @@ module.exports = {
             'http://ordinals_web_1:4000',      // Most likely official pattern
             'http://ordinals_server_1:4000',   // Alternative service name
             'http://ordinals_app_1:4000',      // Another alternative
-            'http://bitcoin-ordinals_web_1:4000',   // If app-id includes 'bitcoin-'
-            'http://bitcoin-ordinals_server_1:4000'
         ];
         
         // Environment variable approach (official Umbrel pattern)
@@ -88,21 +86,29 @@ module.exports = {
             endpoints.push(`http://${process.env.APP_ORDINALS_NODE_IP}:4000`);
         }
         
-        // System hostnames (from official docs)
-        if (process.env.DEVICE_HOSTNAME && process.env.DEVICE_DOMAIN_NAME) {
-            endpoints.push(`http://${process.env.DEVICE_HOSTNAME}.${process.env.DEVICE_DOMAIN_NAME}:4000`);
-        }
-        
-        // Legacy/fallback endpoints
-        const fallbackEndpoints = [
-            'http://umbrel.local:4000',
-            'http://10.21.21.9:4000',       // Common Umbrel IP
-            'http://172.17.0.1:4000',       // Docker gateway
+        // High-probability Docker endpoints (working from logs)
+        const dockerEndpoints = [
+            'http://172.17.0.1:4000',       // Docker gateway (WORKING in logs)
             'http://localhost:4000',
             'http://127.0.0.1:4000'
         ];
-          // Combine all endpoints with official patterns first
-        endpoints.push(...officialUmbrelEndpoints, ...fallbackEndpoints);
+        
+        // Only add low-probability endpoints if not in local-only mode
+        const lowProbabilityEndpoints = [
+            'http://bitcoin-ordinals_web_1:4000',   
+            'http://bitcoin-ordinals_server_1:4000',
+            'http://umbrel.local:4000',
+            'http://10.21.21.9:4000'
+        ];
+        
+        // Combine endpoints by priority
+        endpoints.push(...officialUmbrelEndpoints, ...dockerEndpoints);
+        
+        // Only add low-probability endpoints if not in strict local mode
+        if (!this.useLocalApisOnly()) {
+            endpoints.push(...lowProbabilityEndpoints);
+        }
+        
         return [...new Set(endpoints)]; // Remove duplicates
     },
     
@@ -118,11 +124,8 @@ module.exports = {
         // OFFICIAL UMBREL SERVICE NAMING PATTERN: {app-id}_{service-name}_{instance-number}
         // Based on official mempool app configuration from Umbrel repository
         const officialUmbrelMempoolEndpoints = [
-            'http://mempool_web_1:3006/api',        // Most likely official pattern
+            'http://mempool_web_1:3006/api',        // Most likely official pattern (WORKING in logs)
             'http://mempool_api_1:3006/api',        // Alternative service name
-            'http://mempool_server_1:3006/api',     // Another alternative
-            'http://bitcoin-mempool_web_1:3006/api', // If app-id includes 'bitcoin-'
-            'http://bitcoin-mempool_api_1:3006/api'
         ];
         
         // Environment variable approach (official Umbrel pattern)
@@ -135,28 +138,33 @@ module.exports = {
             endpoints.push(`http://${process.env.APP_MEMPOOL_API_IP}:3006/api`);
         }
         
-        // System hostnames (from official docs)
-        if (process.env.DEVICE_HOSTNAME && process.env.DEVICE_DOMAIN_NAME) {
-            endpoints.push(`http://${process.env.DEVICE_HOSTNAME}.${process.env.DEVICE_DOMAIN_NAME}:3006/api`);
-        }
-        
-        // Legacy/fallback endpoints
-        const fallbackEndpoints = [
-            'http://umbrel.local:3006/api',
-            'http://10.21.21.27:3006/api',      // Official Umbrel mempool API IP
-            'http://10.21.21.26:3006/api',      // Official Umbrel mempool main IP
-            'http://172.17.0.1:3006/api',       // Docker gateway
+        // High-probability endpoints (confirmed working from logs)
+        const workingEndpoints = [
+            'http://10.21.21.26:3006/api',      // Official Umbrel mempool main IP (WORKING)
+            'http://172.17.0.1:3006/api',       // Docker gateway (WORKING)
             'http://localhost:3006/api',
+        ];
+        
+        // Low-probability endpoints
+        const lowProbabilityEndpoints = [
+            'http://mempool_server_1:3006/api',     
+            'http://bitcoin-mempool_web_1:3006/api', 
+            'http://bitcoin-mempool_api_1:3006/api',
+            'http://umbrel.local:3006/api',
+            'http://10.21.21.27:3006/api',      // Often unavailable
             'http://127.0.0.1:3006/api'
         ];
         
-        // Only add external API if not in Umbrel environment
-        if (!this.useLocalApisOnly()) {
-            fallbackEndpoints.push('https://mempool.space/api'); // External fallback
-        }
+        // External fallback (only if not in local-only mode)
+        const externalFallback = ['https://mempool.space/api'];
         
-        // Combine all endpoints with official patterns first
-        endpoints.push(...officialUmbrelMempoolEndpoints, ...fallbackEndpoints);
+        // Combine endpoints by priority
+        endpoints.push(...officialUmbrelMempoolEndpoints, ...workingEndpoints);
+        
+        // Only add low-probability endpoints if not in strict local mode
+        if (!this.useLocalApisOnly()) {
+            endpoints.push(...lowProbabilityEndpoints, ...externalFallback);
+        }
         
         return [...new Set(endpoints)]; // Remove duplicates
     },
