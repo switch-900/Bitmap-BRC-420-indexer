@@ -125,6 +125,13 @@ class BitmapProcessor {
                 const satNumber = inscriptionDetails ? inscriptionDetails.sat : null;
                 const currentWallet = inscriptionDetails ? inscriptionDetails.address : bitmapData.address;
                 
+                // Log sat number extraction for debugging
+                if (satNumber) {
+                    this.logger.info(`✅ Sat number for bitmap ${bitmapData.bitmap_number}: ${satNumber}`);
+                } else {
+                    this.logger.warn(`⚠️ No sat number found for bitmap ${bitmapData.bitmap_number} (inscription: ${bitmapData.inscription_id})`);
+                }
+                
                 const stmt = this.db.prepare("INSERT INTO bitmaps (inscription_id, bitmap_number, content, address, timestamp, block_height, sat, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                 stmt.run([
                     bitmapData.inscription_id, 
@@ -378,27 +385,24 @@ class BitmapProcessor {
                 return null;
             }
 
-            // Convert transaction data to simple size string for Mondrian visualization
+            // Convert transaction data using your exact getSquareSize function
             const txListArray = txHistory.map(tx => {
-                // Use proper value-to-size conversion (like in the original demo)
-                const btcValue = tx.value / 100000000; // Convert sats to BTC
-                let size;
-                if (btcValue === 0) size = 1;
-                else if (btcValue <= 0.01) size = 1;
-                else if (btcValue <= 0.1) size = 2;
-                else if (btcValue <= 1) size = 3;
-                else if (btcValue <= 10) size = 4;
-                else if (btcValue <= 100) size = 5;
-                else if (btcValue <= 1000) size = 6;
-                else if (btcValue <= 10000) size = 7;
-                else if (btcValue <= 100000) size = 8;
-                else if (btcValue <= 1000000) size = 9;
-                else size = 9;
-                
-                return size; // Return simple number for MondrianLayout
+                // Use your exact getSquareSize logic
+                const value = tx.value;
+                if (value / 100000000 === 0) return 1; // Transactions with a value of 0
+                if (value / 100000000 <= 0.01) return 1;
+                if (value / 100000000 <= 0.1) return 2;
+                if (value / 100000000 <= 1) return 3;
+                if (value / 100000000 <= 10) return 4;
+                if (value / 100000000 <= 100) return 5;
+                if (value / 100000000 <= 1000) return 6;
+                if (value / 100000000 <= 10000) return 7;
+                if (value / 100000000 <= 100000) return 8;
+                if (value / 100000000 <= 1000000) return 9;
+                return 9; // For values above 1000000 BTC
             });
 
-            // Just store the simple pattern string - no extra metadata needed
+            // Store the pattern string 
             const patternString = txListArray.join(''); // "554433221"
 
             // Save pattern to database
@@ -493,12 +497,32 @@ class BitmapProcessor {
         const numTransactions = Math.min(20, Math.max(3, Math.floor(bitmapNumber / 10000) + 3));
         const transactions = [];
         
+        // Create much more varied transaction values to test all size ranges 1-9
+        const sizeTargets = [
+            { size: 1, minSats: 0, maxSats: 1000000 },          // 0-0.01 BTC  
+            { size: 2, minSats: 1000000, maxSats: 10000000 },   // 0.01-0.1 BTC
+            { size: 3, minSats: 10000000, maxSats: 100000000 }, // 0.1-1 BTC
+            { size: 4, minSats: 100000000, maxSats: 1000000000 }, // 1-10 BTC  
+            { size: 5, minSats: 1000000000, maxSats: 10000000000 }, // 10-100 BTC
+            { size: 6, minSats: 10000000000, maxSats: 100000000000 }, // 100-1000 BTC
+            { size: 7, minSats: 100000000000, maxSats: 1000000000000 }, // 1000-10000 BTC
+            { size: 8, minSats: 1000000000000, maxSats: 10000000000000 }, // 10000-100000 BTC
+            { size: 9, minSats: 10000000000000, maxSats: 100000000000000 } // 100000+ BTC
+        ];
+        
         for (let i = 0; i < numTransactions; i++) {
+            // Use bitmap number as seed for consistent patterns
+            const seed = (bitmapNumber + i * 7) % sizeTargets.length;
+            const target = sizeTargets[seed];
+            
+            // Generate value within the target range
+            const value = target.minSats + ((bitmapNumber * 1234 + i * 5678) % (target.maxSats - target.minSats));
+            
             transactions.push({
                 txid: `synthetic_${bitmapNumber}_${i}`,
                 blockHeight: 830000 + Math.floor(bitmapNumber / 1000) + i,
-                value: Math.floor(Math.random() * 1000000) + 546, // Random value between 546 and 1M sats
-                timestamp: new Date(Date.now() - (numTransactions - i) * 86400000).toISOString() // Spread over days
+                value: value,
+                timestamp: new Date(Date.now() - (numTransactions - i) * 86400000).toISOString()
             });
         }
         

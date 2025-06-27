@@ -3,8 +3,7 @@
 // /api/bitmap/:bitmap_number/pattern - for specific bitmap patterns
 // /api/bitmaps/search - for bitmap data with embedded pattern info
 
-// Get square size based on transaction value
-function getSquareSize(value) {
+export const getSquareSize = (value) => {
     if (value / 100000000 === 0) return 1; // Transactions with a value of 0
     if (value / 100000000 <= 0.01) return 1;
     if (value / 100000000 <= 0.1) return 2;
@@ -16,9 +15,9 @@ function getSquareSize(value) {
     if (value / 100000000 <= 100000) return 8;
     if (value / 100000000 <= 1000000) return 9;
     return 9; // For values above 1000000 BTC
-}
+};
 
-class MondrianLayout {
+export class MondrianLayout {
     constructor(txList = []) {
         this.width = 0;
         this.height = 0;
