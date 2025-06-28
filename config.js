@@ -33,8 +33,12 @@ module.exports = {
         return this.USE_LOCAL_APIS_ONLY || this.isUmbrelEnvironment();
     },    // Get the appropriate API URL based on environment
     getApiUrl() {
-        // Always prioritize the fallback API_URL for reliability
-        // ORD_API_URL is for local services which may not be available
+        // In Umbrel environment, prioritize local ORD API if available
+        if (this.useLocalApisOnly() && process.env.ORD_API_URL) {
+            return process.env.ORD_API_URL;
+        }
+        
+        // Fall back to external API
         return this.API_URL;
     },
       // Get local API URL for testing connectivity
