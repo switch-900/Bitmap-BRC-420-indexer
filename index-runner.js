@@ -468,8 +468,9 @@ async function getInscriptionContentCached(inscriptionId) {
         `${API_URL}/content/${inscriptionId}`,
         `${API_URL}/inscription/${inscriptionId}/content`,
     ] : [
+        // When not using local API, still avoid ordinals.com JSON endpoints that return 406
+        // Content endpoints typically work better than JSON endpoints on external APIs
         `${API_URL}/content/${inscriptionId}`,
-        `https://ordinals.com/content/${inscriptionId}`,
     ];
     
     for (const endpoint of endpoints) {
@@ -1558,11 +1559,22 @@ async function processBlock(blockHeight) {
     } catch (error) {
         logger.error(`Error in COMPLETE processing of block ${blockHeight}:`, { message: error.message });
         
-        // If we're using local API and get network error, try switching to external
+        // If we're using local API and get network error, try re-discovering local APIs instead of falling back to external
         if (useLocalAPI && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT')) {
-            logger.info('Local API failed, switching to external API for future requests');
-            API_URL = config.getApiUrl(); // Switch back to external API
-            useLocalAPI = false;
+            logger.warn('Local API failed, attempting to re-discover local APIs...');
+            
+            // Try to rediscover local APIs
+            const foundLocalAPI = await testLocalOrdinalsAPIConnectivity();
+            if (foundLocalAPI) {
+                logger.info('Successfully rediscovered local API, continuing with local services');
+            } else if (config.useLocalApisOnly()) {
+                logger.error('Local API discovery failed and USE_LOCAL_APIS_ONLY is set - cannot fall back to external API');
+                throw new Error('Local API unavailable and external API fallback disabled');
+            } else {
+                logger.info('Local API rediscovery failed, switching to external API for future requests');
+                API_URL = config.getApiUrl(); // Switch back to external API
+                useLocalAPI = false;
+            }
         }
         
         logErrorBlock(blockHeight);

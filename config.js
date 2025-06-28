@@ -76,7 +76,8 @@ module.exports = {
         
         // OFFICIAL UMBREL SERVICE NAMING PATTERN: {app-id}_{service-name}_{instance-number}
         const officialUmbrelEndpoints = [
-            'http://ordinals_web_1:4000',      // Most likely official pattern
+            'http://umbrel.local:4000',        // Most reliable external access
+            'http://ordinals_web_1:4000',      // Most likely official pattern  
             'http://ordinals_server_1:4000',   // Alternative service name
             'http://ordinals_app_1:4000',      // Another alternative
         ];
@@ -90,14 +91,7 @@ module.exports = {
         const dockerEndpoints = [
             'http://172.17.0.1:4000',       // Docker gateway (WORKING in logs)
             'http://localhost:4000',
-            'http://127.0.0.1:4000'
-        ];
-        
-        // Only add low-probability endpoints if not in local-only mode
-        const lowProbabilityEndpoints = [
-            'http://bitcoin-ordinals_web_1:4000',   
-            'http://bitcoin-ordinals_server_1:4000',
-            'http://umbrel.local:4000',
+            'http://127.0.0.1:4000',
             'http://10.21.21.9:4000'
         ];
         
@@ -106,6 +100,10 @@ module.exports = {
         
         // Only add low-probability endpoints if not in strict local mode
         if (!this.useLocalApisOnly()) {
+            const lowProbabilityEndpoints = [
+                'http://bitcoin-ordinals_web_1:4000',   
+                'http://bitcoin-ordinals_server_1:4000'
+            ];
             endpoints.push(...lowProbabilityEndpoints);
         }
         
@@ -124,6 +122,7 @@ module.exports = {
         // OFFICIAL UMBREL SERVICE NAMING PATTERN: {app-id}_{service-name}_{instance-number}
         // Based on official mempool app configuration from Umbrel repository
         const officialUmbrelMempoolEndpoints = [
+            'http://umbrel.local:3006/api',         // Most reliable external access
             'http://mempool_web_1:3006/api',        // Most likely official pattern (WORKING in logs)
             'http://mempool_api_1:3006/api',        // Alternative service name
         ];
