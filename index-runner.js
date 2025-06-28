@@ -2049,7 +2049,8 @@ async function getInscriptionTransactionsCached(inscriptionId) {
 
 // Function to generate synthetic transaction data for visualization
 function generateSyntheticTransactionData(bitmapNumber) {
-    const numTransactions = Math.min(20, Math.max(3, Math.floor(bitmapNumber / 10000) + 3));
+    // Remove the 20 transaction limit - generate based on bitmap number
+    const numTransactions = Math.max(3, Math.floor(bitmapNumber / 10000) + 3);
     const transactions = [];
     
     for (let i = 0; i < numTransactions; i++) {
