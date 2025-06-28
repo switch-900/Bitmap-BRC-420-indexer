@@ -39,6 +39,7 @@ const RETRY_BLOCK_DELAY = config.RETRY_BLOCK_DELAY;
 let currentBlock = START_BLOCK;
 let db;
 let useLocalAPI = false;
+let localApiHasSatIndex = null; // null = not tested, true = supports, false = doesn't support
 let bitmapProcessor; // BitmapProcessor instance
 
 // ================================
@@ -541,6 +542,44 @@ async function getInscriptionContentCached(inscriptionId) {
     return '';
 }
 
+// Test if local API supports sat indexing (run once only)
+async function testLocalApiSatIndexing() {
+    if (localApiHasSatIndex !== null) {
+        return localApiHasSatIndex;
+    }
+    
+    if (!useLocalAPI) {
+        localApiHasSatIndex = false;
+        return false;
+    }
+    
+    try {
+        logger.info('🔍 Testing if local Ordinals API supports sat indexing...');
+        
+        // Test with a known inscription that should have sat data
+        const testInscriptionId = '6bcac7ea7d3507293c2234c84349aef7d643c39e416adf4e6db572a5fe500145i0';
+        
+        const response = await robustApiCall(`${API_URL}/inscription/${testInscriptionId}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        
+        if (response.data && response.data.sat && response.data.sat !== null) {
+            logger.info(`✅ Local API supports sat indexing! Found sat: ${response.data.sat}`);
+            localApiHasSatIndex = true;
+        } else {
+            logger.info(`⚠️ Local API does NOT support sat indexing (sat field is null/missing)`);
+            logger.info(`💡 Will use hybrid approach: local API for basic data, external API for sat numbers`);
+            localApiHasSatIndex = false;
+        }
+        
+    } catch (error) {
+        logger.warn(`❌ Failed to test local API sat indexing: ${error.message}`);
+        localApiHasSatIndex = false;
+    }
+    
+    return localApiHasSatIndex;
+}
+
 async function getInscriptionDetailsCached(inscriptionId) {
     const cacheKey = `inscription_${inscriptionId}`;
     
@@ -551,33 +590,68 @@ async function getInscriptionDetailsCached(inscriptionId) {
             return cached;
         }
 
-        // Try ord API endpoint for inscription details
-        // Always try local API first if available
-        let inscriptionResponse = null;
+        // SMART HYBRID APPROACH: Test sat indexing capability once
+        await testLocalApiSatIndexing();
         
-        // If we have a local API, try it first
-        if (useLocalAPI && API_URL.includes('ordinals_web_1')) {
+        let inscriptionResponse = null;
+        let satNumber = null;
+        
+        // Step 1: Get basic inscription data (prefer local API if available)
+        if (useLocalAPI) {
             try {
                 inscriptionResponse = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
                     headers: { 'Accept': 'application/json' }
                 });
+                
+                // If local API has sat indexing, use its sat number
+                if (localApiHasSatIndex && inscriptionResponse.data && inscriptionResponse.data.sat) {
+                    satNumber = inscriptionResponse.data.sat;
+                    logger.debug(`✅ Got complete data (including sat) from local API for ${inscriptionId}`);
+                }
+                
             } catch (localError) {
-                logger.debug(`Local API failed for inscription ${inscriptionId}, trying fallback: ${localError.message}`);
+                logger.debug(`Local API failed for ${inscriptionId}: ${localError.message}`);
+                inscriptionResponse = null;
             }
         }
         
-        // Fallback to configured API_URL if local failed or not available
+        // Step 2: Fallback to external API if local failed
         if (!inscriptionResponse) {
-            inscriptionResponse = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
+            inscriptionResponse = await robustApiCall(`https://ordinals.com/inscription/${inscriptionId}`, {
                 headers: { 'Accept': 'application/json' }
             });
+            
+            if (inscriptionResponse.data && inscriptionResponse.data.sat) {
+                satNumber = inscriptionResponse.data.sat;
+            }
+        }
+        
+        // Step 3: If we have basic data but no sat number (and local API doesn't support sat indexing)
+        if (inscriptionResponse && inscriptionResponse.data && !satNumber && !localApiHasSatIndex) {
+            try {
+                logger.debug(`🔍 Getting sat number from external /r/ endpoint for ${inscriptionId}`);
+                
+                // Use the /r/ endpoint which is more reliable for sat data
+                const externalSatResponse = await robustApiCall(`https://ordinals.com/r/inscription/${inscriptionId}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                
+                if (externalSatResponse && externalSatResponse.data && externalSatResponse.data.sat) {
+                    satNumber = externalSatResponse.data.sat;
+                    logger.debug(`✅ Got sat number from external /r/ endpoint: ${satNumber}`);
+                }
+                
+            } catch (externalError) {
+                logger.debug(`External sat lookup failed for ${inscriptionId}: ${externalError.message}`);
+                // Continue without sat number - not critical for functionality
+            }
         }
 
         if (inscriptionResponse && inscriptionResponse.data) {
             const details = {
                 id: inscriptionResponse.data.id,
                 address: inscriptionResponse.data.address, // Current holder address
-                sat: inscriptionResponse.data.sat, // Sat number
+                sat: satNumber, // Sat number (from local or external API)
                 satpoint: inscriptionResponse.data.satpoint,
                 timestamp: inscriptionResponse.data.timestamp,
                 height: inscriptionResponse.data.height,
@@ -587,9 +661,10 @@ async function getInscriptionDetailsCached(inscriptionId) {
                 value: inscriptionResponse.data.value
             };
 
-            // Log when we successfully get sat number
+            // Log sat extraction results
             if (details.sat) {
-                logger.debug(`✅ Got sat number for ${inscriptionId}: ${details.sat}`);
+                const strategy = localApiHasSatIndex ? 'LOCAL' : (!useLocalAPI ? 'EXTERNAL' : 'HYBRID');
+                logger.debug(`✅ Got sat number for ${inscriptionId}: ${details.sat} [${strategy}]`);
             } else {
                 logger.debug(`⚠️ No sat number for ${inscriptionId} (API returned null)`);
             }
@@ -1895,6 +1970,19 @@ module.exports = {
         // Test local API connectivity before starting
         await testLocalAPIConnectivity();
         await testLocalMempoolAPIConnectivity();
+        
+        // Test and log sat extraction strategy
+        if (useLocalAPI) {
+            const hasSatSupport = await testLocalApiSatIndexing();
+            if (hasSatSupport) {
+                logger.info('🎯 SAT EXTRACTION: Using local API with sat indexing support');
+            } else {
+                logger.info('🔄 SAT EXTRACTION: Using hybrid strategy - local API for basic data, external API for sat numbers');
+                logger.info('💡 This avoids making thousands of unnecessary requests to the local API that does not support sat indexing');
+            }
+        } else {
+            logger.info('🌐 SAT EXTRACTION: Using external API only');
+        }
         
         // Set up cleanup on process exit
         process.on('SIGINT', () => {
