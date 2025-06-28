@@ -277,22 +277,43 @@ async function getInscriptionsForBlock(blockHeight) {
     
     while (hasMore && pageNumber < maxPages) {
         try {
-            // First page (pageNumber=0) has no page parameter, subsequent pages use page=1, page=2, etc.
+            // FIXED: Use path parameters instead of query parameters for pagination
             const url = pageNumber === 0 
                 ? `${API_URL}/inscriptions/block/${blockHeight}`
-                : `${API_URL}/inscriptions/block/${blockHeight}?page=${pageNumber}`;
+                : `${API_URL}/inscriptions/block/${blockHeight}/${pageNumber}`;
                 
             processingLogger.debug(`Fetching page ${pageNumber} for block ${blockHeight}: ${url}`);
             
             const response = await robustApiCall(url);
             const responseData = response.data;
             
-            // Extract inscription IDs from the response
-            const inscriptions = Array.isArray(responseData) ? responseData : (responseData.ids || []);
-            hasMore = responseData.more === true;
+            // Log the actual response structure for debugging
+            processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Raw response structure: ${JSON.stringify(Object.keys(responseData)).substring(0, 200)}`);
+            
+            // Extract inscription IDs and pagination info from the response
+            let inscriptions = [];
+            let moreFlag = false;
+            
+            if (Array.isArray(responseData)) {
+                // Simple array response (old format)
+                inscriptions = responseData;
+                moreFlag = false; // No pagination info in array format
+            } else if (responseData.ids && Array.isArray(responseData.ids)) {
+                // Object with ids array (new format)
+                inscriptions = responseData.ids;
+                moreFlag = responseData.more === true;
+            } else {
+                // Unexpected format
+                processingLogger.warn(`Block ${blockHeight}, Page ${pageNumber}: Unexpected response format: ${JSON.stringify(responseData).substring(0, 200)}`);
+                inscriptions = [];
+                moreFlag = false;
+            }
+            
+            hasMore = moreFlag;
             const currentPageIndex = responseData.page_index !== undefined ? responseData.page_index : pageNumber;
             
             processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Found ${inscriptions.length} inscriptions (more=${hasMore}, page_index=${currentPageIndex})`);
+            processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Response format - isArray: ${Array.isArray(responseData)}, has_ids: ${!!responseData.ids}, more_field: ${responseData.more}, has_more_property: ${responseData.hasOwnProperty('more')}`);
             
             if (inscriptions.length === 0 && pageNumber === 0) {
                 processingLogger.info(`Block ${blockHeight}: No inscriptions found in this block`);
@@ -324,16 +345,38 @@ async function getInscriptionsForBlock(blockHeight) {
             
             processingLogger.debug(`Block ${blockHeight}, Page ${pageNumber}: Added ${newInscriptions} new inscriptions (${duplicateInscriptions} duplicates ignored)`);
             
-            // If more=false, we're done
-            if (!hasMore) {
-                processingLogger.info(`Block ${blockHeight}: API indicates no more pages (more=false)`);
+            // If more=false explicitly, we're done
+            if (responseData.hasOwnProperty('more') && !hasMore) {
+                processingLogger.info(`Block ${blockHeight}: API explicitly indicates no more pages (more=false)`);
                 break;
             }
             
-            // If we got no new inscriptions and there were duplicates, the API might be stuck
-            if (newInscriptions === 0 && duplicateInscriptions > 0) {
-                processingLogger.warn(`Block ${blockHeight}: Page ${pageNumber} returned only duplicates, assuming pagination is complete`);
-                break;
+            // If we got no new inscriptions, check termination conditions
+            if (newInscriptions === 0) {
+                if (pageNumber === 0) {
+                    // First page with no inscriptions means empty block
+                    processingLogger.info(`Block ${blockHeight}: No inscriptions found in this block`);
+                    break;
+                } else if (duplicateInscriptions > 0) {
+                    // Subsequent page with only duplicates
+                    if (responseData.hasOwnProperty('more') && hasMore) {
+                        // API says there are more pages, but we got only duplicates - continue cautiously
+                        processingLogger.warn(`Block ${blockHeight}: Page ${pageNumber} returned only duplicates, but API indicates more pages. Continuing...`);
+                    } else {
+                        // No more flag or more=false, and only duplicates - stop
+                        processingLogger.info(`Block ${blockHeight}: Page ${pageNumber} returned only duplicates and no more pages indicated. Pagination complete.`);
+                        break;
+                    }
+                } else {
+                    // No new inscriptions and no duplicates - truly empty page
+                    processingLogger.info(`Block ${blockHeight}: Page ${pageNumber} returned no inscriptions. Pagination complete.`);
+                    break;
+                }
+            }
+            
+            // If we have new inscriptions but API says no more, continue for one more page to be safe
+            if (newInscriptions > 0 && responseData.hasOwnProperty('more') && !hasMore) {
+                processingLogger.info(`Block ${blockHeight}: Got ${newInscriptions} new inscriptions but API indicates no more pages. This should be the last page.`);
             }
             
             // Move to next page
