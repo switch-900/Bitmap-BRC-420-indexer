@@ -569,6 +569,14 @@ router.get('/stats', (req, res) => {
         });
     }
 
+    const db = dbManager.getConnection();
+    if (!db) {
+        return res.status(503).json({ 
+            error: 'Database connection unavailable',
+            timestamp: new Date().toISOString()
+        });
+    }
+
     const queries = {
         brc420_deploys: "SELECT COUNT(*) as count FROM brc420_deploys",
         brc420_mints: "SELECT COUNT(*) as count FROM brc420_mints",
@@ -583,7 +591,7 @@ router.get('/stats', (req, res) => {
     const total = Object.keys(queries).length;
     
     Object.entries(queries).forEach(([key, query]) => {
-        req.db.get(query, [], (err, row) => {
+        db.get(query, [], (err, row) => {
             if (!err && row) {
                 stats[key] = row.count !== undefined ? row.count : row.latest;
             } else {
