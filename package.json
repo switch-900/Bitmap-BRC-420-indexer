@@ -1,20 +1,36 @@
 {
   "name": "brc-420-indexer",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "High-performance Bitcoin BRC-420 inscription indexer with support for deploys, mints, bitmaps, and parcels",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "start:prod": "node --max-old-space-size=8192 --optimize-for-size server.js",
-    "indexer": "node index-runner.js",
-    "indexer:dev": "node --max-old-space-size=4096 index-runner.js",
-    "indexer:prod": "node --max-old-space-size=8192 --optimize-for-size index-runner.js",
+    "start:prod": "NODE_ENV=production node --max-old-space-size=8192 --optimize-for-size server.js",
+    "start:dev": "NODE_ENV=development node --max-old-space-size=4096 server.js",
+    "test": "node server-simple.js",
+    "test:server": "WEB_PORT=8081 node server-simple.js",
+    "indexer": "RUN_INDEXER=true node index-runner.js",
+    "indexer:dev": "NODE_ENV=development RUN_INDEXER=true node --max-old-space-size=4096 index-runner.js",
+    "indexer:prod": "NODE_ENV=production RUN_INDEXER=true node --max-old-space-size=8192 --optimize-for-size index-runner.js",
     "setup-db": "node db/setup.js",
-    "dev": "nodemon server.js",
-    "dev:indexer": "nodemon index-runner.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "echo \"Linting not configured\" && exit 0",
+    "dev": "NODE_ENV=development nodemon server.js",
+    "dev:indexer": "NODE_ENV=development nodemon index-runner.js",
+    "server:simple": "node server-simple.js",
+    "server:check": "node -c server.js && echo 'Server syntax OK'",
+    "config:check": "node -e 'const config = require(\"./config\"); config.printSummary(); console.log(\"Config validation:\", config.validate());'",
+    "db:check": "node -e 'const sqlite3 = require(\"sqlite3\"); const db = new sqlite3.Database(\"./db/brc420.db\", sqlite3.OPEN_READONLY, (err) => { if (err) { console.error(\"DB Error:\", err.message); process.exit(1); } else { console.log(\"Database OK\"); db.close(); } });'",
+    "health": "curl -f http://localhost:8080/health || echo 'Health check failed'",
+    "logs": "tail -f logs/*.log 2>/dev/null || echo 'No log files found'",
+    "clean": "rm -rf logs/*.log node_modules/.cache",
+    "clean:all": "rm -rf logs/*.log node_modules db/*.db*",
     "docker:build": "docker build -t brc-420-indexer .",
-    "docker:run": "docker run -p 3000:3000 brc-420-indexer"
+    "docker:run": "docker run -p 8080:8080 brc-420-indexer",
+    "docker:dev": "docker run -p 8080:8080 -v $(pwd):/app brc-420-indexer",
+    "lint": "echo \"Linting not configured\" && exit 0",
+    "prestart": "npm run setup-db",
+    "postinstall": "mkdir -p logs db public/js",
+    "debug": "NODE_ENV=development DEBUG=* node --inspect server.js",
+    "debug:indexer": "NODE_ENV=development DEBUG=* node --inspect index-runner.js"
   },
   "keywords": [
     "bitcoin",
@@ -23,15 +39,24 @@
     "indexer",
     "inscriptions",
     "bitmaps",
-    "parcels"
+    "parcels",
+    "blockchain",
+    "cryptocurrency"
   ],
   "author": "BRC-420 Indexer Team",
-  "license": "ISC",
-  "description": "High-performance Bitcoin BRC-420 inscription indexer with support for deploys, mints, bitmaps, and parcels",
+  "license": "MIT",
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/switch-900/brc-420-indexer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/switch-900/brc-420-indexer/issues"
+  },
+  "homepage": "https://github.com/switch-900/brc-420-indexer#readme",
   "dependencies": {
     "axios": "^1.7.4",
     "bull": "^4.16.0",
@@ -47,5 +72,28 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.32.0"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "server.js",
+      "config.js",
+      "routes/",
+      "public/"
+    ],
+    "ext": "js,json,html,css",
+    "ignore": [
+      "node_modules/",
+      "logs/",
+      "db/"
+    ],
+    "delay": 1000
+  },
+  "config": {
+    "port": 8080,
+    "apiPort": 5000,
+    "dbPath": "./db/brc420.db"
   }
 }
