@@ -2,22 +2,46 @@ FROM node:18-alpine AS builder
 
 WORKDIR /build
 
-# Copy package files
+# Install build dependencies for native modules (sqlite3 compilation)
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    sqlite-dev \
+    pkgconfig \
+    linux-headers
+
+# Copy package files first for better layer caching
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --production
+# Clean install with fallback for production build
+RUN npm cache clean --force && \
+    (npm ci --production --verbose || \
+     npm install --production --no-audit --no-fund --verbose)
 
 # Copy source code
 COPY . .
 
-# Remove development files
-RUN rm -rf umbrel-community-app-store/ *.md
+# Remove development and unnecessary files
+RUN rm -rf \
+    umbrel-community-app-store/ \
+    *.md \
+    .git \
+    .gitignore \
+    .vscode \
+    .idea \
+    logs \
+    tmp \
+    test \
+    tests \
+    coverage
 
 FROM node:18-alpine
 
-# Install dependencies
-RUN apk add --no-cache sqlite
+# Install runtime dependencies
+RUN apk add --no-cache \
+    sqlite \
+    dumb-init
 
 # Create app user with UID 1000 for Umbrel compatibility
 RUN addgroup -g 1000 app || true && \
@@ -27,11 +51,11 @@ RUN addgroup -g 1000 app || true && \
 
 WORKDIR /app
 
-# Copy built application
+# Copy built application with proper ownership
 COPY --from=builder --chown=1000:1000 /build .
 
-# Copy entrypoint script
-COPY --chown=1000:1000 entrypoint.sh /entrypoint.sh
+# Copy entrypoint script if it exists
+COPY --chown=1000:1000 entrypoint.sh /entrypoint.sh 2>/dev/null || echo "#!/bin/sh\nexec \"\$@\"" > /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create necessary directories  
