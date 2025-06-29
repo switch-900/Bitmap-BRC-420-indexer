@@ -1372,6 +1372,15 @@ async function markBlockAsProcessed(blockHeight, processed, skipped, errors) {
 
 function initDatabase() {
     return new Promise((resolve, reject) => {
+        // Check if we have a global database connection from server.js
+        if (global.db) {
+            logger.info('📊 Using shared database connection from server');
+            db = global.db;
+            resolve();
+            return;
+        }
+        
+        // Otherwise create our own connection
         const dbPath = config.DB_PATH || './db/brc420.db';
         db = new sqlite3.Database(dbPath, (err) => {
             if (err) {
@@ -1739,6 +1748,7 @@ function setupGracefulShutdown() {
 // Export for module usage
 module.exports = {
     startUnlimitedIndexing,
+    startIndexer: startUnlimitedIndexing, // Alias for server.js compatibility
     processBlock,
     processInscription,
     initDatabase,

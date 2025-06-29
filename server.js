@@ -146,33 +146,27 @@ function setupDatabaseSchema(db, callback) {
     
     db.serialize(() => {
         let tablesCreated = 0;
-        const totalTables = 10; // Added block_stats, failed_inscriptions, and parcels tables
+        const totalTables = 11; // All tables: brc420_deploys, brc420_mints, bitmaps, bitmap_patterns, wallets, blocks, error_blocks, block_stats, parcels, processed_blocks, failed_inscriptions
         
         function checkCompletion() {
             tablesCreated++;
             if (tablesCreated >= totalTables) {
                 console.log('All database tables created successfully');
                 
-                // Create indexes after all tables are created
+                // Create indexes after all tables are created (matches setup.js schema)
                 const indexes = [
-                    'CREATE INDEX IF NOT EXISTS idx_deploys_block_height ON deploys(block_height)',
-                    'CREATE INDEX IF NOT EXISTS idx_deploys_name ON deploys(name)',
-                    'CREATE INDEX IF NOT EXISTS idx_mints_deploy_id ON mints(deploy_id)',
-                    'CREATE INDEX IF NOT EXISTS idx_mints_block_height ON mints(block_height)',
-                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_bitmap_number ON bitmaps(bitmap_number)',
+                    'CREATE INDEX IF NOT EXISTS idx_brc420_deploys_tick ON brc420_deploys(tick)',
+                    'CREATE INDEX IF NOT EXISTS idx_brc420_deploys_block_height ON brc420_deploys(block_height)',
+                    'CREATE INDEX IF NOT EXISTS idx_brc420_mints_tick ON brc420_mints(tick)',
+                    'CREATE INDEX IF NOT EXISTS idx_brc420_mints_block_height ON brc420_mints(block_height)',
+                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_number ON bitmaps(bitmap_number)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmaps_block_height ON bitmaps(block_height)',
-                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_address ON bitmaps(address)',
-                    'CREATE INDEX IF NOT EXISTS idx_bitmaps_sat ON bitmaps(sat)',
+                    'CREATE INDEX IF NOT EXISTS idx_processed_blocks_height ON processed_blocks(block_height)',
+                    'CREATE INDEX IF NOT EXISTS idx_failed_inscriptions_block_height ON failed_inscriptions(block_height)',
                     'CREATE INDEX IF NOT EXISTS idx_bitmap_patterns_bitmap_number ON bitmap_patterns(bitmap_number)',
                     'CREATE INDEX IF NOT EXISTS idx_parcels_parcel_number ON parcels(parcel_number)',
                     'CREATE INDEX IF NOT EXISTS idx_parcels_bitmap_number ON parcels(bitmap_number)',
-                    'CREATE INDEX IF NOT EXISTS idx_parcels_block_height ON parcels(block_height)',
-                    'CREATE INDEX IF NOT EXISTS idx_parcels_address ON parcels(address)',
-                    'CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(address)',
-                    'CREATE INDEX IF NOT EXISTS idx_wallets_type ON wallets(type)',
-                    'CREATE INDEX IF NOT EXISTS idx_blocks_processed ON blocks(processed)',
-                    'CREATE INDEX IF NOT EXISTS idx_error_blocks_retry_at ON error_blocks(retry_at)',
-                    'CREATE INDEX IF NOT EXISTS idx_block_stats_block_height ON block_stats(block_height)'
+                    'CREATE INDEX IF NOT EXISTS idx_parcels_block_height ON parcels(block_height)'
                 ];
 
                 let indexesCreated = 0;
@@ -183,58 +177,60 @@ function setupDatabaseSchema(db, callback) {
                         if (indexesCreated === indexes.length) {
                             console.log('All database indexes created successfully');
                             console.log('Database setup completed successfully');
-                            callback(db); // Pass the open database connection
+                            
+                            // Small delay to ensure all database operations are flushed
+                            setTimeout(() => {
+                                callback(db); // Pass the open database connection
+                            }, 1000);
                         }
                     });
                 });
             }
         }
 
-        // Create deploys table
-        safeDbRun(`CREATE TABLE IF NOT EXISTS deploys (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            max INTEGER NOT NULL,
-            price REAL NOT NULL,
-            deployer_address TEXT NOT NULL,
-            block_height INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
-            source_id TEXT NOT NULL,
-            wallet TEXT,
-            UNIQUE(id)
+        // Create BRC-420 deploys table (matches index-runner.js expectations)
+        safeDbRun(`CREATE TABLE IF NOT EXISTS brc420_deploys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inscription_id TEXT UNIQUE NOT NULL,
+            tick TEXT NOT NULL,
+            max_supply INTEGER,
+            limit_per_mint INTEGER,
+            decimals INTEGER DEFAULT 18,
+            deployer TEXT,
+            block_height INTEGER,
+            sat_number INTEGER,
+            deploy_data TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, [], () => {
-            console.log('Deploys table created or already exists');
+            console.log('BRC-420 deploys table created or already exists');
             checkCompletion();
         });
 
-        // Create mints table
-        safeDbRun(`CREATE TABLE IF NOT EXISTS mints (
-            id TEXT PRIMARY KEY,
-            deploy_id TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            mint_address TEXT NOT NULL,
-            transaction_id TEXT NOT NULL,
-            block_height INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
-            wallet TEXT,
-            FOREIGN KEY (deploy_id) REFERENCES deploys(id),
-            UNIQUE(id)
+        // Create BRC-420 mints table (matches index-runner.js expectations)
+        safeDbRun(`CREATE TABLE IF NOT EXISTS brc420_mints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inscription_id TEXT UNIQUE NOT NULL,
+            tick TEXT NOT NULL,
+            amount INTEGER,
+            block_height INTEGER,
+            sat_number INTEGER,
+            mint_data TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, [], () => {
-            console.log('Mints table created or already exists');
+            console.log('BRC-420 mints table created or already exists');
             checkCompletion();
         });
 
-        // Create bitmaps table with enhanced schema for Mondrian visualization
+        // Create bitmaps table (matches index-runner.js expectations)
         safeDbRun(`CREATE TABLE IF NOT EXISTS bitmaps (
-            inscription_id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inscription_id TEXT UNIQUE NOT NULL,
             bitmap_number INTEGER NOT NULL,
-            content TEXT NOT NULL,
-            address TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            block_height INTEGER NOT NULL,
-            sat INTEGER,
-            wallet TEXT,
-            UNIQUE(inscription_id),
+            block_height INTEGER,
+            sat_number INTEGER,
+            transaction_patterns TEXT,
+            pattern_metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(bitmap_number)
         )`, [], () => {
             console.log('Bitmaps table created or already exists');
@@ -320,15 +316,25 @@ function setupDatabaseSchema(db, callback) {
             checkCompletion();
         });
 
-        // Create failed_inscriptions table for tracking processing failures
+        // Create processed blocks table (matches index-runner.js markBlockAsProcessed)
+        safeDbRun(`CREATE TABLE IF NOT EXISTS processed_blocks (
+            block_height INTEGER PRIMARY KEY,
+            inscriptions_processed INTEGER DEFAULT 0,
+            inscriptions_skipped INTEGER DEFAULT 0,
+            inscriptions_errors INTEGER DEFAULT 0,
+            processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, [], () => {
+            console.log('Processed blocks table created or already exists');
+            checkCompletion();
+        });
+
+        // Create failed inscriptions table (matches index-runner.js saveFailedInscription)
         safeDbRun(`CREATE TABLE IF NOT EXISTS failed_inscriptions (
-            inscription_id TEXT PRIMARY KEY,
-            block_height INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inscription_id TEXT NOT NULL,
+            block_height INTEGER,
             error_message TEXT,
-            retry_count INTEGER DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            last_retry_at INTEGER,
-            UNIQUE(inscription_id)
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, [], () => {
             console.log('Failed inscriptions table created or already exists');
             checkCompletion();
@@ -420,9 +426,9 @@ async function startServer() {
                         console.error('Failed to start indexer process:', error.message);
                         console.log('Indexer will retry automatically...');
                     });
-                }, 2000); // 2 second delay before starting indexer
+                }, 5000); // Increased to 5 second delay before starting indexer
             }
-        }, 1000); // 1 second delay for server readiness
+        }, 2000); // Increased to 2 second delay for server readiness
     });
 
     // Handle server errors
@@ -441,10 +447,20 @@ async function startIndexerProcess() {
     console.log(`Starting from block: ${config.START_BLOCK}`);
     console.log(`API URL: ${config.getApiUrl()}`);
     
-    try {        // Import and run the indexer
+    try {
+        // Import and run the indexer
         const indexer = require('./index-runner.js');
         console.log('Starting Bitcoin inscription indexer...');
-        await indexer.startIndexer();
+        
+        // Use the global database connection instead of creating a new one
+        if (global.db) {
+            console.log('Using shared database connection for indexer');
+            // Pass the existing database connection to avoid conflicts
+            await indexer.startUnlimitedIndexing();
+        } else {
+            console.log('No database available, indexer will create its own connection');
+            await indexer.startIndexer();
+        }
     } catch (error) {
         console.error('Error starting indexer:', error.message);
         console.log('Retrying indexer in 30 seconds...');
