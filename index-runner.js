@@ -46,45 +46,52 @@ let bitmapProcessor; // BitmapProcessor instance
 // UNLIMITED PROCESSING CLASSES
 // ================================
 
-// Class for unlimited API cache with intelligent memory management
-class UnlimitedAPICache {
+// Enhanced adaptive memory-safe cache with unlimited capacity
+class AdaptiveMemorySafeCache {
     constructor(maxAge = 300000) { // 5 minute cache
         this.cache = new Map();
         this.maxAge = maxAge;
-        this.memoryThreshold = 0.8; // 80% of available memory
+        this.memoryThreshold = 0.85; // Only cleanup under severe memory pressure
         this.lastCleanup = Date.now();
-        this.cleanupInterval = setInterval(() => this.smartCleanup(), 60000); // Every minute
+        this.cleanupInterval = setInterval(() => this.adaptiveCleanup(), 60000);
+        this.totalCleanups = 0;
+        this.totalItemsProcessed = 0;
     }
     
-    smartCleanup() {
+    adaptiveCleanup() {
         const now = Date.now();
         const memoryUsage = process.memoryUsage();
         const memoryPressure = memoryUsage.heapUsed / memoryUsage.heapTotal;
         
         let keysToDelete = [];
         
-        // Always remove expired entries
+        // ALWAYS remove expired entries (no data loss)
         for (const [key, item] of this.cache.entries()) {
             if (now - item.timestamp > this.maxAge) {
                 keysToDelete.push(key);
             }
         }
         
-        // If under memory pressure, remove older entries
+        // ONLY under severe memory pressure, remove older entries
         if (memoryPressure > this.memoryThreshold) {
             const allEntries = Array.from(this.cache.entries())
                 .sort((a, b) => a[1].timestamp - b[1].timestamp);
             
-            const entriesToRemove = Math.floor(allEntries.length * 0.2); // Remove oldest 20%
-            keysToDelete = keysToDelete.concat(
-                allEntries.slice(0, entriesToRemove).map(entry => entry[0])
-            );
+            // Remove oldest 25% under severe pressure (still keep 75%)
+            const entriesToRemove = Math.floor(allEntries.length * 0.25);
+            if (entriesToRemove > 0) {
+                keysToDelete = keysToDelete.concat(
+                    allEntries.slice(0, entriesToRemove).map(entry => entry[0])
+                );
+                logger.warn(`Severe memory pressure (${Math.round(memoryPressure * 100)}%), removing ${entriesToRemove} oldest cache entries`);
+            }
         }
         
         keysToDelete.forEach(key => this.cache.delete(key));
+        this.totalCleanups++;
         
         if (keysToDelete.length > 0) {
-            logger.debug(`Smart cache cleanup: removed ${keysToDelete.length} entries, cache size now: ${this.cache.size}`);
+            logger.debug(`Adaptive cache cleanup: removed ${keysToDelete.length} entries, cache size now: ${this.cache.size}`);
         }
     }
     
@@ -100,12 +107,34 @@ class UnlimitedAPICache {
         return item.data;
     }
     
-    // No size limits - only memory-based cleanup
     set(key, data) {
+        // NO arbitrary size limits - let it grow as needed for complete indexing
         this.cache.set(key, {
             data,
             timestamp: Date.now()
         });
+        this.totalItemsProcessed++;
+    }
+    
+    // Emergency cleanup only if system is about to crash
+    emergencyCleanup() {
+        const memoryUsage = process.memoryUsage();
+        const memoryMB = memoryUsage.heapUsed / 1024 / 1024;
+        
+        if (memoryMB > 3072) { // Only if using >3GB (very high)
+            const allEntries = Array.from(this.cache.entries())
+                .sort((a, b) => a[1].timestamp - b[1].timestamp);
+            
+            const toDelete = allEntries.slice(0, Math.floor(allEntries.length * 0.5));
+            toDelete.forEach(([key]) => this.cache.delete(key));
+            
+            logger.warn(`Emergency cleanup: removed ${toDelete.length} entries, memory was ${memoryMB}MB`);
+            
+            if (global.gc) {
+                global.gc();
+                logger.info('Forced garbage collection after emergency cleanup');
+            }
+        }
     }
     
     destroy() {
@@ -120,7 +149,10 @@ class UnlimitedAPICache {
         return {
             size: this.cache.size,
             memoryUsage: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`,
-            maxAge: this.maxAge
+            maxAge: this.maxAge,
+            cleanups: this.totalCleanups,
+            processed: this.totalItemsProcessed,
+            hitRate: this.totalItemsProcessed > 0 ? (this.cache.size / this.totalItemsProcessed * 100).toFixed(1) + '%' : '0%'
         };
     }
 }
@@ -406,55 +438,473 @@ async function getInscriptionsForBlock(blockHeight) {
 }
 
 // ================================
+// FAST CONTENT PREVIEW OPTIMIZATION
+// ================================
+
+// Get just the first 50 characters of inscription content for type detection
+async function getInscriptionContentPreview(inscriptionId, previewLength = 50) {
+    const cacheKey = `preview_${inscriptionId}_${previewLength}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached !== null) return cached;
+    
+    const endpoints = useLocalAPI ? [
+        `${API_URL}/content/${inscriptionId}`,
+        `${API_URL}/inscription/${inscriptionId}/content`,
+    ] : [
+        `${API_URL}/content/${inscriptionId}`,
+    ];
+    
+    for (const endpoint of endpoints) {
+        try {
+            // Use range header to fetch only the first bytes
+            const response = await robustApiCall(endpoint, {
+                responseType: 'text',
+                headers: {
+                    'Range': `bytes=0-${previewLength + 10}` // Get a bit extra for safety
+                }
+            });
+            
+            let content = response.data || '';
+            if (typeof content !== 'string') {
+                content = String(content);
+            }
+            
+            // Truncate to exact preview length
+            const preview = content.substring(0, previewLength);
+            
+            if (preview.length > 0) {
+                processingLogger.debug(`Fast preview fetched (${preview.length} chars): "${preview}"`);
+                apiCache.set(cacheKey, preview);
+                return preview;
+            }
+        } catch (error) {
+            // Range requests might not be supported, fall back to full content
+            if (error.response && error.response.status === 416) {
+                // Range not satisfiable, try without range
+                try {
+                    const response = await robustApiCall(endpoint, {
+                        responseType: 'text'
+                    });
+                    
+                    let content = response.data || '';
+                    if (typeof content !== 'string') {
+                        content = String(content);
+                    }
+                    
+                    const preview = content.substring(0, previewLength);
+                    apiCache.set(cacheKey, preview);
+                    return preview;
+                } catch (fallbackError) {
+                    processingLogger.debug(`Fallback endpoint ${endpoint} failed: ${fallbackError.message}`);
+                    continue;
+                }
+            } else {
+                processingLogger.debug(`Preview endpoint ${endpoint} failed: ${error.message}`);
+                continue;
+            }
+        }
+    }
+    
+    // If all endpoints fail, return empty string
+    processingLogger.debug(`Could not fetch preview for inscription ${inscriptionId}`);
+    apiCache.set(cacheKey, '');
+    return '';
+}
+
+// Fast content type detection using preview (optimized based on Python indexer patterns)
+function detectInscriptionType(preview) {
+    if (!preview || preview.length === 0) {
+        return 'unknown';
+    }
+    
+    // Clean whitespace for analysis
+    const trimmed = preview.trim();
+    
+    // BRC-420 deploy detection (highest priority)
+    if (trimmed.startsWith('{"p":"brc-420","op":"deploy"')) {
+        return 'brc420-deploy';
+    }
+    
+    // BRC-420 mint detection
+    if (trimmed.startsWith('/content/') && trimmed.includes('i')) {
+        return 'brc420-mint';
+    }
+    
+    // OPTIMIZED: Bitmap detection with strict validation (based on Python indexer)
+    if (trimmed.endsWith('.bitmap')) {
+        const bitmapCandidate = trimmed.substring(0, trimmed.length - 7); // Remove '.bitmap'
+        if (isValidBitmapNumber(bitmapCandidate)) {
+            return 'bitmap';
+        }
+    }
+    
+    // Binary content detection
+    if (trimmed.includes('\u0000') || trimmed.includes('\uFFFD') || 
+        (trimmed.charCodeAt(0) === 0x89 && trimmed.substring(1, 4) === 'PNG') ||
+        (trimmed.substring(0, 4) === '\xFF\xD8\xFF') || // JPEG
+        (trimmed.substring(0, 6) === 'GIF87a' || trimmed.substring(0, 6) === 'GIF89a')) {
+        return 'binary';
+    }
+    
+    // JSON content (potential for future BRC standards)
+    if (trimmed.startsWith('{') && trimmed.includes('"')) {
+        return 'json';
+    }
+    
+    // Text content
+    return 'text';
+}
+
+// OPTIMIZED: Bitmap number validation (based on Python indexer logic)
+function isValidBitmapNumber(bitmapStr) {
+    if (!bitmapStr || bitmapStr.length === 0) {
+        return false;
+    }
+    
+    // Check if all characters are digits
+    for (let i = 0; i < bitmapStr.length; i++) {
+        const char = bitmapStr[i];
+        if (char < '0' || char > '9') {
+            return false;
+        }
+    }
+    
+    // No leading zeros except for "0" itself
+    if (bitmapStr[0] === '0' && bitmapStr.length !== 1) {
+        return false;
+    }
+    
+    return true;
+}
+
+// OPTIMIZED: Extract and validate bitmap number from content
+function extractBitmapNumber(content) {
+    if (!content || !content.endsWith('.bitmap')) {
+        return null;
+    }
+    
+    const bitmapStr = content.substring(0, content.length - 7); // Remove '.bitmap'
+    
+    if (!isValidBitmapNumber(bitmapStr)) {
+        return null;
+    }
+    
+    const bitmapNumber = parseInt(bitmapStr, 10);
+    
+    // Additional validation: ensure parsing didn't fail
+    if (isNaN(bitmapNumber) || bitmapNumber < 0) {
+        return null;
+    }
+    
+    return bitmapNumber;
+}
+
+// ================================
+// CONTENT TYPE FILTERING (Based on Python indexer approach)
+// ================================
+
+// Filter inscriptions by content type before processing (Python indexer optimization)
+async function filterInscriptionsByContentType(inscriptionIds, blockHeight) {
+    processingLogger.info(`🔍 Pre-filtering ${inscriptionIds.length} inscriptions by content type`);
+    
+    const relevantInscriptions = [];
+    const skipCount = { binary: 0, irrelevant: 0, errors: 0 };
+    
+    // Process in batches to avoid overwhelming the API
+    const batchSize = 100;
+    for (let i = 0; i < inscriptionIds.length; i += batchSize) {
+        const batch = inscriptionIds.slice(i, i + batchSize);
+        
+        const batchPromises = batch.map(async (inscriptionId) => {
+            try {
+                // Get inscription details to check content type
+                const details = await getInscriptionDetailsCached(inscriptionId);
+                if (!details || !details.content_type) {
+                    skipCount.errors++;
+                    return null;
+                }
+                
+                const contentType = details.content_type.toLowerCase();
+                
+                // PYTHON INDEXER PATTERN: Only process text/plain content
+                // Also include application/json for BRC-420 deploys
+                if (contentType.includes('text/plain') || 
+                    contentType.includes('application/json') ||
+                    contentType.includes('text/json')) {
+                    
+                    return {
+                        id: inscriptionId,
+                        contentType: contentType,
+                        priority: getPriorityForContentType(contentType)
+                    };
+                } else {
+                    // Skip binary, image, and other non-text content
+                    if (contentType.includes('image/') || 
+                        contentType.includes('audio/') || 
+                        contentType.includes('video/') ||
+                        contentType.includes('application/octet-stream')) {
+                        skipCount.binary++;
+                    } else {
+                        skipCount.irrelevant++;
+                    }
+                    return null;
+                }
+            } catch (error) {
+                processingLogger.debug(`Error getting content type for ${inscriptionId}: ${error.message}`);
+                skipCount.errors++;
+                return null;
+            }
+        });
+        
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        for (const result of batchResults) {
+            if (result.status === 'fulfilled' && result.value) {
+                relevantInscriptions.push(result.value);
+            }
+        }
+        
+        // Small delay between batches to avoid API rate limits
+        if (i + batchSize < inscriptionIds.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+    
+    processingLogger.info(`✅ Content type filtering complete:`);
+    processingLogger.info(`   📋 Relevant: ${relevantInscriptions.length}/${inscriptionIds.length}`);
+    processingLogger.info(`   🚫 Skipped binary: ${skipCount.binary}`);
+    processingLogger.info(`   🔍 Skipped irrelevant: ${skipCount.irrelevant}`);
+    processingLogger.info(`   ❌ Errors: ${skipCount.errors}`);
+    
+    // Sort by priority (highest first)
+    relevantInscriptions.sort((a, b) => a.priority - b.priority);
+    
+    return relevantInscriptions;
+}
+
+function getPriorityForContentType(contentType) {
+    if (contentType.includes('application/json')) return 1; // BRC-420 deploys likely
+    if (contentType.includes('text/plain')) return 2; // Bitmaps and mints
+    return 3; // Other text types
+}
+
+// ================================
+// WORKER-BASED TASK ORGANIZATION
+// ================================
+
+// Task priority system for optimal processing order
+class TaskPriorityManager {
+    constructor() {
+        this.taskQueues = {
+            'high': [], // BRC-420 deploys (highest priority)
+            'medium': [], // BRC-420 mints and bitmaps
+            'low': [], // Other content types
+            'skip': [] // Binary/non-relevant content
+        };
+        this.processedCount = 0;
+        this.totalTasks = 0;
+    }
+    
+    // Categorize inscription based on fast preview
+    categorizeInscription(inscriptionId, contentType, blockHeight) {
+        const task = {
+            id: inscriptionId,
+            type: contentType,
+            blockHeight: blockHeight,
+            priority: this.getPriority(contentType)
+        };
+        
+        switch (contentType) {
+            case 'brc420-deploy':
+                this.taskQueues.high.push(task);
+                break;
+            case 'brc420-mint':
+            case 'bitmap':
+                this.taskQueues.medium.push(task);
+                break;
+            case 'json':
+            case 'text':
+                this.taskQueues.low.push(task);
+                break;
+            case 'binary':
+                this.taskQueues.skip.push(task);
+                break;
+            default:
+                this.taskQueues.low.push(task);
+        }
+        
+        this.totalTasks++;
+        return task;
+    }
+    
+    getPriority(contentType) {
+        const priorities = {
+            'brc420-deploy': 1,
+            'brc420-mint': 2,
+            'bitmap': 3,
+            'json': 4,
+            'text': 5,
+            'binary': 99
+        };
+        return priorities[contentType] || 10;
+    }
+    
+    // Get next batch of tasks to process, prioritized
+    getNextBatch(batchSize = 50) {
+        const batch = [];
+        
+        // Process high priority first
+        while (batch.length < batchSize && this.taskQueues.high.length > 0) {
+            batch.push(this.taskQueues.high.shift());
+        }
+        
+        // Then medium priority
+        while (batch.length < batchSize && this.taskQueues.medium.length > 0) {
+            batch.push(this.taskQueues.medium.shift());
+        }
+        
+        // Finally low priority
+        while (batch.length < batchSize && this.taskQueues.low.length > 0) {
+            batch.push(this.taskQueues.low.shift());
+        }
+        
+        return batch;
+    }
+    
+    hasMoreTasks() {
+        return this.taskQueues.high.length > 0 || 
+               this.taskQueues.medium.length > 0 || 
+               this.taskQueues.low.length > 0;
+    }
+    
+    getStats() {
+        return {
+            high: this.taskQueues.high.length,
+            medium: this.taskQueues.medium.length,
+            low: this.taskQueues.low.length,
+            skipped: this.taskQueues.skip.length,
+            processed: this.processedCount,
+            total: this.totalTasks
+        };
+    }
+    
+    markProcessed() {
+        this.processedCount++;
+    }
+}
+
+// ================================
 // UNLIMITED INSCRIPTION PROCESSING
 // ================================
 
-// Process all inscriptions with dynamic batching and NO LIMITS
+// Process all inscriptions with FAST PREVIEW and WORKER-BASED PRIORITIZATION
 async function processAllInscriptionsCompletely(inscriptionIds, blockHeight) {
     const batchProcessor = new DynamicBatchProcessor();
-    let processedCount = 0;
+    const taskManager = new TaskPriorityManager();
     let results = [];
     
-    processingLogger.info(`Starting COMPLETE processing of ${inscriptionIds.length} inscriptions in block ${blockHeight} with NO LIMITS`);
+    processingLogger.info(`🚀 Starting OPTIMIZED processing of ${inscriptionIds.length} inscriptions in block ${blockHeight}`);
     
-    while (processedCount < inscriptionIds.length) {
+    // PHASE 0: CONTENT TYPE FILTERING (Python indexer approach)
+    processingLogger.info(`🔍 Phase 0: Content type pre-filtering`);
+    const preFilterStartTime = Date.now();
+    
+    const relevantInscriptions = await filterInscriptionsByContentType(inscriptionIds, blockHeight);
+    
+    const preFilterTime = Date.now() - preFilterStartTime;
+    processingLogger.info(`✅ Phase 0 complete (${preFilterTime}ms): ${relevantInscriptions.length}/${inscriptionIds.length} inscriptions are relevant`);
+    
+    if (relevantInscriptions.length === 0) {
+        processingLogger.info(`🎯 No relevant inscriptions found in block ${blockHeight}, skipping detailed processing`);
+        return [];
+    }
+    
+    // PHASE 1: FAST PREVIEW - Categorize remaining inscriptions by type
+    processingLogger.info(`📋 Phase 1: Fast content preview and task categorization`);
+    const previewStartTime = Date.now();
+    
+    const previewPromises = relevantInscriptions.map(async (inscriptionInfo) => {
+        try {
+            const preview = await getInscriptionContentPreview(inscriptionInfo.id, 50);
+            const contentType = detectInscriptionType(preview);
+            return taskManager.categorizeInscription(inscriptionInfo.id, contentType, blockHeight);
+        } catch (error) {
+            processingLogger.debug(`Preview failed for ${inscriptionInfo.id}: ${error.message}`);
+            return taskManager.categorizeInscription(inscriptionInfo.id, 'unknown', blockHeight);
+        }
+    });
+    
+    // Process previews with concurrency control
+    concurrencyLimit = adaptiveConcurrency.getLimit();
+    await Promise.allSettled(
+        previewPromises.map(promise => concurrencyLimit(() => promise))
+    );
+    
+    const previewTime = Date.now() - previewStartTime;
+    const stats = taskManager.getStats();
+    
+    processingLogger.info(`✅ Phase 1 complete (${previewTime}ms): High=${stats.high}, Medium=${stats.medium}, Low=${stats.low}, Skipped=${stats.skipped}`);
+    
+    // PHASE 2: PRIORITIZED PROCESSING - Process tasks in priority order
+    processingLogger.info(`⚡ Phase 2: Prioritized processing (skipping ${stats.skipped} binary/irrelevant inscriptions)`);
+    const processingStartTime = Date.now();
+    
+    while (taskManager.hasMoreTasks()) {
         const batchSize = batchProcessor.getBatchSize();
-        const batch = inscriptionIds.slice(processedCount, processedCount + batchSize);
+        const batch = taskManager.getNextBatch(batchSize);
+        
+        if (batch.length === 0) break;
         
         try {
             // Update concurrency limit dynamically
             concurrencyLimit = adaptiveConcurrency.getLimit();
             
+            processingLogger.debug(`Processing batch of ${batch.length} inscriptions (priorities: ${batch.map(t => t.priority).join(',')})`);
+            
             const batchResults = await Promise.allSettled(
-                batch.map(inscriptionId => 
-                    concurrencyLimit(() => processInscriptionWithRetry(inscriptionId, blockHeight))
+                batch.map(task => 
+                    concurrencyLimit(() => processInscriptionWithRetry(task.id, task.blockHeight))
                 )
             );
             
+            // Mark tasks as processed
+            batch.forEach(() => taskManager.markProcessed());
+            
             results = results.concat(batchResults);
-            processedCount += batch.length;
             batchProcessor.adjustBatchSize(true);
             
-            processingLogger.debug(`Block ${blockHeight}: Processed ${processedCount}/${inscriptionIds.length} inscriptions (batch size: ${batchSize})`);
+            const currentStats = taskManager.getStats();
+            processingLogger.debug(`Progress: ${currentStats.processed}/${currentStats.total} processed, ${taskManager.hasMoreTasks() ? 'continuing' : 'finishing'}`);
             
         } catch (error) {
             batchProcessor.adjustBatchSize(false);
             processingLogger.error(`Batch processing error for block ${blockHeight}:`, error.message);
             
             // Process failed batch one by one to ensure no data loss
-            for (const inscriptionId of batch) {
+            for (const task of batch) {
                 try {
-                    const result = await processInscriptionWithRetry(inscriptionId, blockHeight);
+                    const result = await processInscriptionWithRetry(task.id, task.blockHeight);
                     results.push({ status: 'fulfilled', value: result });
                 } catch (singleError) {
                     results.push({ status: 'rejected', reason: singleError });
                 }
-                processedCount++;
+                taskManager.markProcessed();
             }
         }
     }
     
-    processingLogger.info(`COMPLETE: Finished processing all ${processedCount} inscriptions in block ${blockHeight}`);
+    const processingTime = Date.now() - processingStartTime;
+    const totalTime = Date.now() - preFilterStartTime;
+    const finalStats = taskManager.getStats();
+    
+    processingLogger.info(`🎯 OPTIMIZED PROCESSING COMPLETE for block ${blockHeight}:`);
+    processingLogger.info(`   📊 Processed: ${finalStats.processed}/${finalStats.total} relevant inscriptions`);
+    processingLogger.info(`   🔍 Phase 0 (Content Filter): ${preFilterTime}ms`);
+    processingLogger.info(`   ⚡ Phase 1 (Preview): ${previewTime}ms`);
+    processingLogger.info(`   🔧 Phase 2 (Processing): ${processingTime}ms`);
+    processingLogger.info(`   📈 Total time: ${totalTime}ms`);
+    processingLogger.info(`   🎯 Efficiency: Processed ${relevantInscriptions.length}/${inscriptionIds.length} inscriptions (${((relevantInscriptions.length / inscriptionIds.length) * 100).toFixed(1)}% relevant)`);
+    
     return results;
 }
 
@@ -481,9 +931,49 @@ async function processInscriptionWithRetry(inscriptionId, blockHeight, maxRetrie
     }
 }
 
-const apiCache = new UnlimitedAPICache();
+const apiCache = new AdaptiveMemorySafeCache();
 
 // PERFORMANCE OPTIMIZATION: Cached API functions to reduce redundant calls
+async function getInscriptionDetailsCached(inscriptionId) {
+    const cacheKey = `details_${inscriptionId}`;
+    const cached = apiCache.get(cacheKey);
+    if (cached !== null) return cached;
+    
+    const endpoints = useLocalAPI ? [
+        `${API_URL}/inscription/${inscriptionId}`,
+        `${API_URL}/inscriptions/${inscriptionId}`,
+    ] : [
+        `${API_URL}/inscription/${inscriptionId}`,
+    ];
+    
+    for (const endpoint of endpoints) {
+        try {
+            const response = await robustApiCall(endpoint);
+            const details = response.data;
+            
+            // Cache the details
+            apiCache.set(cacheKey, details);
+            return details;
+            
+        } catch (error) {
+            processingLogger.debug(`Failed to get inscription details from ${endpoint}: ${error.message}`);
+            continue;
+        }
+    }
+    
+    // If all endpoints fail, return basic details structure
+    processingLogger.warn(`Could not fetch details for inscription ${inscriptionId}`);
+    const fallbackDetails = { 
+        id: inscriptionId, 
+        address: null,
+        block_height: null,
+        timestamp: null,
+        content_type: 'text/plain' // Default content type for filtering
+    };
+    apiCache.set(cacheKey, fallbackDetails);
+    return fallbackDetails;
+}
+
 async function getDeployerAddressCached(inscriptionId) {
     const cacheKey = `deployer_${inscriptionId}`;
     const cached = apiCache.get(cacheKey);
@@ -542,1613 +1032,732 @@ async function getInscriptionContentCached(inscriptionId) {
     return '';
 }
 
-// Test if local API supports sat indexing (run once only)
-async function testLocalApiSatIndexing() {
-    if (localApiHasSatIndex !== null) {
-        return localApiHasSatIndex;
-    }
-    
-    if (!useLocalAPI) {
-        localApiHasSatIndex = false;
-        return false;
-    }
-    
+// ================================
+// INSCRIPTION PROCESSING
+// ================================
+
+// Main inscription processing function with enhanced error handling
+async function processInscription(inscriptionId, blockHeight) {
+    let processed = false;
     try {
-        logger.info('🔍 Testing if local Ordinals API supports sat indexing...');
+        logger.debug(`Processing inscription: ${inscriptionId} from block ${blockHeight}`);
         
-        // Test with a known inscription that should have sat data
-        const testInscriptionId = '6bcac7ea7d3507293c2234c84349aef7d643c39e416adf4e6db572a5fe500145i0';
-        
-        const response = await robustApiCall(`${API_URL}/inscription/${testInscriptionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-        
-        if (response.data && response.data.sat && response.data.sat !== null) {
-            logger.info(`✅ Local API supports sat indexing! Found sat: ${response.data.sat}`);
-            localApiHasSatIndex = true;
-        } else {
-            logger.info(`⚠️ Local API does NOT support sat indexing (sat field is null/missing)`);
-            logger.info(`💡 Will use hybrid approach: local API for basic data, external API for sat numbers`);
-            localApiHasSatIndex = false;
+        // Get inscription details with hybrid sat extraction
+        const inscriptionDetails = await getInscriptionDetailsCached(inscriptionId);
+        if (!inscriptionDetails) {
+            logger.warn(`No details found for inscription ${inscriptionId}`);
+            return null;
         }
         
+        // Get content with fast preview
+        const contentPreview = await getInscriptionContentPreview(inscriptionId, 100);
+        
+        // Skip binary or non-text content early
+        if (contentPreview.isBinary) {
+            logger.debug(`Skipping binary inscription ${inscriptionId}`);
+            return null;
+        }
+        
+        const fullContent = contentPreview.isBrc420 || contentPreview.isBitmap 
+            ? await getInscriptionContentCached(inscriptionId)
+            : contentPreview.preview;
+        
+        // Process BRC-420 deploy
+        if (contentPreview.isBrc420 && fullContent.includes('"op":"deploy"')) {
+            const deploy = await processBrc420Deploy(inscriptionId, fullContent, inscriptionDetails, blockHeight);
+            if (deploy) {
+                logger.info(`✅ Processed BRC-420 deploy: ${inscriptionId}`);
+                processed = true;
+            }
+        }
+        
+        // Process BRC-420 mint  
+        if (contentPreview.isBrc420 && fullContent.includes('"op":"mint"')) {
+            const mint = await processBrc420Mint(inscriptionId, fullContent, inscriptionDetails, blockHeight);
+            if (mint) {
+                logger.info(`✅ Processed BRC-420 mint: ${inscriptionId}`);
+                processed = true;
+            }
+        }
+        
+        // Process bitmap
+        if (contentPreview.isBitmap) {
+            const bitmapNumber = extractBitmapNumber(fullContent);
+            if (bitmapNumber !== null) {
+                const bitmap = await processBitmap(inscriptionId, bitmapNumber, inscriptionDetails, blockHeight);
+                if (bitmap) {
+                    logger.info(`✅ Processed bitmap: ${inscriptionId} (#${bitmapNumber})`);
+                    processed = true;
+                }
+            }
+        }
+        
+        return processed ? { inscriptionId, type: 'processed' } : null;
+        
     } catch (error) {
-        logger.warn(`❌ Failed to test local API sat indexing: ${error.message}`);
-        localApiHasSatIndex = false;
+        logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
+        throw error;
     }
-    
-    return localApiHasSatIndex;
 }
 
-async function getInscriptionDetailsCached(inscriptionId) {
-    const cacheKey = `inscription_${inscriptionId}`;
-    
+// Process BRC-420 deploy transaction
+async function processBrc420Deploy(inscriptionId, content, inscriptionDetails, blockHeight) {
     try {
-        // Check cache first
-        const cached = apiCache.get(cacheKey);
-        if (cached !== null) {
-            return cached;
-        }
-
-        // SMART HYBRID APPROACH: Test sat indexing capability once
-        await testLocalApiSatIndexing();
+        const data = JSON.parse(content);
         
-        let inscriptionResponse = null;
-        let satNumber = null;
-        
-        // Step 1: Get basic inscription data (prefer local API if available)
-        if (useLocalAPI) {
-            try {
-                inscriptionResponse = await robustApiCall(`${API_URL}/inscription/${inscriptionId}`, {
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                // If local API has sat indexing, use its sat number
-                if (localApiHasSatIndex && inscriptionResponse.data && inscriptionResponse.data.sat) {
-                    satNumber = inscriptionResponse.data.sat;
-                    logger.debug(`✅ Got complete data (including sat) from local API for ${inscriptionId}`);
-                }
-                
-            } catch (localError) {
-                logger.debug(`Local API failed for ${inscriptionId}: ${localError.message}`);
-                inscriptionResponse = null;
-            }
+        if (data.p !== 'brc-420' || data.op !== 'deploy') {
+            return null;
         }
         
-        // Step 2: Fallback to external API if local failed
-        if (!inscriptionResponse) {
-            inscriptionResponse = await robustApiCall(`https://ordinals.com/inscription/${inscriptionId}`, {
-                headers: { 'Accept': 'application/json' }
-            });
-            
-            if (inscriptionResponse.data && inscriptionResponse.data.sat) {
-                satNumber = inscriptionResponse.data.sat;
-            }
-        }
+        // Enhanced validation based on Python indexer
+        const deployerAddress = await getDeployerAddressCached(inscriptionId);
         
-        // Step 3: If we have basic data but no sat number (and local API doesn't support sat indexing)
-        if (inscriptionResponse && inscriptionResponse.data && !satNumber && !localApiHasSatIndex) {
-            try {
-                logger.debug(`🔍 Getting sat number from external /r/ endpoint for ${inscriptionId}`);
-                
-                // Use the /r/ endpoint which is more reliable for sat data
-                const externalSatResponse = await robustApiCall(`https://ordinals.com/r/inscription/${inscriptionId}`, {
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                if (externalSatResponse && externalSatResponse.data && externalSatResponse.data.sat) {
-                    satNumber = externalSatResponse.data.sat;
-                    logger.debug(`✅ Got sat number from external /r/ endpoint: ${satNumber}`);
-                }
-                
-            } catch (externalError) {
-                logger.debug(`External sat lookup failed for ${inscriptionId}: ${externalError.message}`);
-                // Continue without sat number - not critical for functionality
-            }
-        }
-
-        if (inscriptionResponse && inscriptionResponse.data) {
-            const details = {
-                id: inscriptionResponse.data.id,
-                address: inscriptionResponse.data.address, // Current holder address
-                sat: satNumber, // Sat number (from local or external API)
-                satpoint: inscriptionResponse.data.satpoint,
-                timestamp: inscriptionResponse.data.timestamp,
-                height: inscriptionResponse.data.height,
-                content_type: inscriptionResponse.data.content_type,
-                content_length: inscriptionResponse.data.content_length,
-                fee: inscriptionResponse.data.fee,
-                value: inscriptionResponse.data.value
-            };
-
-            // Log sat extraction results
-            if (details.sat) {
-                const strategy = localApiHasSatIndex ? 'LOCAL' : (!useLocalAPI ? 'EXTERNAL' : 'HYBRID');
-                logger.debug(`✅ Got sat number for ${inscriptionId}: ${details.sat} [${strategy}]`);
-            } else {
-                logger.debug(`⚠️ No sat number for ${inscriptionId} (API returned null)`);
-            }
-
-            // Cache the result
-            apiCache.set(cacheKey, details);
-            return details;
-        }
-
-        return null;
-
+        const deployData = {
+            inscription_id: inscriptionId,
+            tick: data.tick,
+            max: data.max ? parseInt(data.max) : null,
+            lim: data.lim ? parseInt(data.lim) : null,
+            dec: data.dec ? parseInt(data.dec) : 18,
+            deployer: deployerAddress,
+            block_height: blockHeight,
+            sat_number: inscriptionDetails.sat || null,
+            deploy_data: JSON.stringify(data)
+        };
+        
+        // Save to database
+        await saveBrc420Deploy(deployData);
+        return deployData;
+        
     } catch (error) {
-        logger.debug(`Error fetching inscription details for ${inscriptionId}:`, { message: error.message });
+        logger.debug(`Invalid BRC-420 deploy content for ${inscriptionId}: ${error.message}`);
         return null;
     }
 }
 
-// Function to get current wallet address (where inscription is now)
-// PERFORMANCE OPTIMIZATION: Batch database operations
-class DatabaseBatcher {
-    constructor(db) {
-        this.db = db;
-        this.walletBatch = [];
-        this.batchSize = 50; // Process in smaller batches for better memory management
-    }
-    
-    addWallet(inscriptionId, address, type) {
-        this.walletBatch.push({ inscriptionId, address, type, timestamp: Date.now() });
-        if (this.walletBatch.length >= this.batchSize) {
-            return this.flushWallets();
-        }
-        return Promise.resolve();
-    }
-    
-    async flushWallets() {
-        if (this.walletBatch.length === 0) return;
-        
-        const batch = [...this.walletBatch];
-        this.walletBatch = [];
-        
-        return new Promise((resolve, reject) => {
-            this.db.serialize(() => {
-                this.db.run("BEGIN TRANSACTION");
-                
-                const stmt = this.db.prepare("INSERT OR REPLACE INTO wallets (inscription_id, address, type, updated_at) VALUES (?, ?, ?, ?)");
-                
-                batch.forEach(wallet => {
-                    stmt.run([wallet.inscriptionId, wallet.address, wallet.type, wallet.timestamp]);
-                });
-                
-                stmt.finalize();
-                
-                this.db.run("COMMIT", (err) => {
-                    if (err) {
-                        logger.error('Error flushing wallet batch:', err);
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
-            });
-        });
-    }
-    
-    async flushAll() {
-        await this.flushWallets();
-    }
-}
-
-let dbBatcher;
-
-// Test if local Ordinals API is available
-async function testLocalAPIConnectivity() {
-    const endpoints = config.getLocalApiEndpoints();
-    
-    if (!endpoints || endpoints.length === 0) {
-        logger.info('No local API endpoints configured, using external API');
-        return false;
-    }
-    
-    logger.info(`Testing ${endpoints.length} local API endpoints for Ordinals service...`);
-    
-    for (const endpoint of endpoints) {
-        try {            logger.info(`🔍 Testing: ${endpoint}`);
-            
-            // Test with a simple status endpoint first
-            try {
-                const response = await axios.get(`${endpoint}/status`, {
-                    timeout: 5000, // Increased timeout for local node
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                if (response.status === 200) {
-                    logger.info(`✅ Found Ordinals API at: ${endpoint} (via /status)`);
-                    API_URL = endpoint;
-                    useLocalAPI = true;
-                    return true;
-                }
-            } catch (statusError) {
-                // /status endpoint might not exist, try actual block endpoint
-                logger.debug(`Status endpoint failed for ${endpoint}: ${statusError.message}`);
-            }
-            
-            // Test with actual inscriptions endpoint
-            const response = await axios.get(`${endpoint}/inscriptions/block/792435`, {
-                timeout: 10000, // Increased timeout for local node
-                headers: { 'Accept': 'application/json' }
-            });
-            
-            if (response.status === 200) {
-                const count = Array.isArray(response.data) ? response.data.length : 0;
-                logger.info(`✅ Found Ordinals API at: ${endpoint} (${count} inscriptions in test block)`);
-                API_URL = endpoint;
-                useLocalAPI = true;
-                return true;
-            } else if (response.status === 404) {
-                // 404 is fine - means the endpoint exists but no inscriptions in that block
-                logger.info(`✅ Found Ordinals API at: ${endpoint} (endpoint exists, no inscriptions in test block)`);
-                API_URL = endpoint;
-                useLocalAPI = true;
-                return true;
-            }
-            
-        } catch (error) {
-            logger.debug(`❌ Failed ${endpoint}: ${error.message}`);
-            continue;
-        }
-    }
-    
-    logger.info('❌ No local Ordinals API found on any endpoint, using external API: https://ordinals.com');
-    logger.info('💡 To use a local Ordinals service, ensure an Ordinals app is installed and running on your Umbrel');
-    
-    // Force test the Docker endpoint that's most likely to work on Umbrel
-    const forceTestEndpoints = [
-        'http://ordinals_web_1:4000',
-        'http://ordinals_server_1:4000'
-    ];
-    
-    logger.info('🔍 Testing force endpoints for Ordinals API...');
-    for (const endpoint of forceTestEndpoints) {
-        try {
-            // Try a simple inscription endpoint that should exist
-            const testInscriptionId = 'f74cb8cee101149ac5c4f8853f32e40c76b690cef7f0b51d98a864e2be65763ci0'; // Bitmap #2015
-            const response = await axios.get(`${endpoint}/inscription/${testInscriptionId}`, {
-                timeout: 10000,
-                headers: { 'Accept': 'application/json' }
-            });
-            
-            if (response.status === 200 && response.data && response.data.id) {
-                logger.info(`✅ Found Ordinals API at: ${endpoint} (via inscription test)`);
-                logger.info(`🎯 Inscription test returned sat: ${response.data.sat || 'null'}`);
-                API_URL = endpoint;
-                useLocalAPI = true;
-                return true;
-            }
-        } catch (error) {
-            logger.debug(`❌ Force test failed ${endpoint}: ${error.message}`);
-        }
-    }
-    
-    return false;
-}
-
-// Test if local Mempool API is available
-async function testLocalMempoolAPIConnectivity() {
-    const endpoints = config.getMempoolApiEndpoints();
-    
-    if (!endpoints || endpoints.length === 0) {
-        logger.info('No local mempool API endpoints configured, using external API');
-        return false;
-    }
-    
-    logger.info(`Testing ${endpoints.length} local mempool API endpoints...`);
-    
-    for (const endpoint of endpoints) {
-        try {
-            logger.info(`🔍 Testing mempool API: ${endpoint}`);
-            
-            // Test with a simple status endpoint first
-            try {
-                const response = await axios.get(`${endpoint}/blocks/tip/height`, {
-                    timeout: 5000,
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                if (response.status === 200 && typeof response.data === 'number') {
-                    logger.info(`✅ Found Mempool API at: ${endpoint} (current block: ${response.data})`);
-                    // Update the mempool API URL in config for future use
-                    config.API_WALLET_URL = endpoint;
-                    return true;
-                }
-            } catch (statusError) {
-                logger.debug(`Mempool status endpoint failed for ${endpoint}: ${statusError.message}`);
-                continue;
-            }
-            
-        } catch (error) {
-            logger.debug(`❌ Failed mempool endpoint ${endpoint}: ${error.message}`);
-            continue;
-        }
-    }
-    
-    logger.info('❌ No local Mempool API found, using external API: https://mempool.space/api');
-    return false;
-}
-
-// Initialize database connection for indexer with retry logic
-function initializeIndexerDb() {
-    return new Promise((resolve, reject) => {
-        let retryCount = 0;
-        const maxRetries = 10;
-        const retryDelay = 2000; // 2 seconds
-        
-        function attemptConnection() {
-            db = new sqlite3.Database(config.DB_PATH, sqlite3.OPEN_READWRITE, (err) => {
-                if (err) {
-                    logger.warn(`Database connection attempt ${retryCount + 1} failed: ${err.message}`);
-                    
-                    if (retryCount < maxRetries) {
-                        retryCount++;
-                        logger.info(`Retrying database connection in ${retryDelay}ms (attempt ${retryCount}/${maxRetries})...`);
-                        setTimeout(attemptConnection, retryDelay);
-                    } else {
-                        logger.error('Max database connection retries exceeded');
-                        reject(err);
-                    }
-                } else {
-                    logger.info('Indexer connected to the BRC-420 database.');
-                    
-                    // Configure database for concurrent access
-                    db.serialize(() => {
-                        db.run("PRAGMA journal_mode = WAL"); // Enable WAL mode for better concurrency
-                        db.run("PRAGMA synchronous = NORMAL"); // Balance safety and speed
-                        db.run("PRAGMA busy_timeout = 30000"); // 30 second timeout for busy database
-                        db.run("PRAGMA cache_size = -64000"); // 64MB cache for indexer
-                        
-                        // Initialize database batcher for performance optimization
-                        dbBatcher = new DatabaseBatcher(db);
-                        
-                        // Initialize BitmapProcessor for clean bitmap and parcel handling
-                        bitmapProcessor = new BitmapProcessor(
-                            db, 
-                            logger, 
-                            processingLogger, 
-                            API_URL, 
-                            getInscriptionDetailsCached, 
-                            getMintAddress
-                        );
-                        logger.info('BitmapProcessor initialized successfully');
-                        
-                        resolve();
-                    });
-                }
-            });
-        }
-        
-        // Start first attempt after a small delay to let server.js initialize the database
-        setTimeout(attemptConnection, 3000); // 3 second delay
-    });
-}
-
-// Joi schemas for validation
-const deploySchema = Joi.object({
-    p: Joi.string().valid('brc-420').required(),
-    op: Joi.string().valid('deploy').required(),
-    id: Joi.string().required(),
-    name: Joi.string().required(),
-    max: Joi.number().integer().positive().required(),
-    price: Joi.number().precision(8).positive().required(),
-    deployer_address: Joi.string().required(),
-    block_height: Joi.number().integer().positive().required(),
-    timestamp: Joi.date().timestamp().required(),
-    source_id: Joi.string().required()
-});
-
-const mintSchema = Joi.object({
-    id: Joi.string().required(),
-    deploy_id: Joi.string().required(),
-    source_id: Joi.string().required(),
-    mint_address: Joi.string().required(),
-    transaction_id: Joi.string().required(),
-    block_height: Joi.number().integer().positive().required(),
-    timestamp: Joi.date().timestamp().required()
-});
-
-// Function to save or update a wallet (using batch operations for performance)
-function saveOrUpdateWallet(inscriptionId, address, type) {
-    if (dbBatcher) {
-        return dbBatcher.addWallet(inscriptionId, address, type);
-    } else {
-        // Fallback to direct database operation if batcher not initialized
-        return new Promise((resolve, reject) => {
-            const stmt = db.prepare("INSERT OR REPLACE INTO wallets (inscription_id, address, type, updated_at) VALUES (?, ?, ?, ?)");
-            stmt.run([inscriptionId, address, type, Date.now()], function(err) {
-                if (err) {
-                    logger.error(`Error saving/updating wallet ${address} for inscription ${inscriptionId}:`, { message: err.message });
-                    reject(err);
-                } else {
-                    logger.info(`Wallet ${address} for inscription ${inscriptionId} saved/updated.`);
-                    resolve();
-                }
-            });
-        });
-    }
-}
-
-// Function to validate that deployer owns the source inscription
-async function validateDeployerOwnership(deployInscription) {    try {
-        // Get the source inscription details using cached API call
-        const sourceDetails = await getInscriptionDetailsCached(deployInscription.source_id);
-        if (!sourceDetails) {
-            logger.error(`Could not get source inscription details for ${deployInscription.source_id}`);
-            return false;
-        }
-
-        const sourceAddress = sourceDetails.address;
-        const deployerAddress = deployInscription.deployer_address;
-
-        const isValid = sourceAddress === deployerAddress;
-        logger.info(`Deployer ownership validation for ${deployInscription.id}: ${isValid ? 'VALID' : 'INVALID'} (source owner: ${sourceAddress}, deployer: ${deployerAddress})`);
-        return isValid;
-
-    } catch (error) {
-        logger.error(`Error validating deployer ownership for ${deployInscription.id}:`, { message: error.message });
-        return false;
-    }
-}
-
-// Function to validate that source inscription hasn't been deployed before
-async function validateUniqueDeployment(sourceInscriptionId) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT id FROM deploys WHERE source_id = ?", [sourceInscriptionId], (err, row) => {
-            if (err) {
-                logger.error(`Error checking unique deployment for ${sourceInscriptionId}:`, { message: err.message });
-                reject(err);
-            } else {
-                const isUnique = !row;
-                logger.info(`Unique deployment validation for ${sourceInscriptionId}: ${isUnique ? 'VALID' : 'INVALID'} (already deployed: ${!!row})`);
-                resolve(isUnique);
-            }
-        });
-    });
-}
-
-// Function to save deploy data
-async function saveDeploy(deployData) {
-    return new Promise((resolve, reject) => {
-        const { error } = deploySchema.validate(deployData);
-        if (error) {
-            logger.error(`Deploy validation error for ${deployData.id}:`, { message: error.details[0].message });
-            reject(new Error(`Deploy validation failed: ${error.details[0].message}`));
-            return;
-        }
-
-        db.get("SELECT id FROM deploys WHERE id = ?", [deployData.id], (err, row) => {
-            if (err) {
-                logger.error(`Error checking if deploy ${deployData.id} exists:`, { message: err.message });
-                reject(err);
-            } else if (row) {
-                logger.info(`Deploy ${deployData.id} already exists in database. Skipping.`);
-                resolve();
-            } else {
-                const stmt = db.prepare("INSERT INTO deploys (id, name, max, price, deployer_address, block_height, timestamp, source_id, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                stmt.run([deployData.id, deployData.name, deployData.max, deployData.price, deployData.deployer_address, deployData.block_height, deployData.timestamp, deployData.source_id, deployData.deployer_address], function(err) {
-                    if (err) {
-                        logger.error(`Error saving deploy ${deployData.id}:`, { message: err.message });
-                        reject(err);
-                    } else {
-                        logger.info(`Deploy ${deployData.id} saved to database.`);
-                        saveOrUpdateWallet(deployData.id, deployData.deployer_address, 'deploy');
-                        resolve();
-                    }
-                });
-            }
-        });
-    });
-}
-
-// Function to save mint data
-async function saveMint(mintData) {
-    return new Promise((resolve, reject) => {
-        const { error } = mintSchema.validate(mintData);
-        if (error) {
-            logger.error(`Mint validation error for ${mintData.id}:`, { message: error.details[0].message });
-            reject(new Error(`Mint validation failed: ${error.details[0].message}`));
-            return;
-        }
-
-        db.get("SELECT id FROM mints WHERE id = ?", [mintData.id], (err, row) => {
-            if (err) {
-                logger.error(`Error checking if mint ${mintData.id} exists:`, { message: err.message });
-                reject(err);
-            } else if (row) {
-                logger.info(`Mint ${mintData.id} already exists in database. Skipping.`);
-                resolve();
-            } else {
-                const stmt = db.prepare("INSERT INTO mints (id, deploy_id, source_id, mint_address, transaction_id, block_height, timestamp, wallet) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                stmt.run([mintData.id, mintData.deploy_id, mintData.source_id, mintData.mint_address, mintData.transaction_id, mintData.block_height, mintData.timestamp, mintData.mint_address], function(err) {
-                    if (err) {
-                        logger.error(`Error saving mint ${mintData.id}:`, { message: err.message });
-                        reject(err);
-                    } else {
-                        logger.info(`Mint ${mintData.id} saved to database.`);
-                        saveOrUpdateWallet(mintData.id, mintData.mint_address, 'mint');
-                        resolve();
-                    }
-                });
-            }
-        });
-    });
-}
-
-// Function to save bitmap data
-// Function to log block in error table
-function logErrorBlock(blockHeight) {
-    const stmt = db.prepare("INSERT OR REPLACE INTO error_blocks (block_height, error_message, retry_count, retry_at) VALUES (?, ?, 0, ?)");
-    stmt.run([blockHeight, 'Processing failed', blockHeight + RETRY_BLOCK_DELAY], function(err) {
-        if (err) {
-            logger.error(`Error logging error block ${blockHeight}:`, { message: err.message });
-        } else {
-            logger.info(`Block ${blockHeight} logged as error block.`);
-        }
-    });
-}
-
-// Function to get deploy by ID
-function getDeployById(deployId) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT * FROM deploys WHERE source_id = ?", [deployId], (err, row) => {
-            if (err) {
-                logger.error(`Error fetching deploy ${deployId}:`, { message: err.message });
-                reject(err);
-            } else {
-                resolve(row);
-            }
-        });
-    });
-}
-
-// Function to get mint address (using cached API call)
-async function getMintAddress(inscriptionId) {
+// Process BRC-420 mint transaction
+async function processBrc420Mint(inscriptionId, content, inscriptionDetails, blockHeight) {
     try {
-        const details = await getInscriptionDetailsCached(inscriptionId);
-        return details ? details.address : null;
+        const data = JSON.parse(content);
+        
+        if (data.p !== 'brc-420' || data.op !== 'mint') {
+            return null;
+        }
+        
+        const mintData = {
+            inscription_id: inscriptionId,
+            tick: data.tick,
+            amt: data.amt ? parseInt(data.amt) : null,
+            block_height: blockHeight,
+            sat_number: inscriptionDetails.sat || null,
+            mint_data: JSON.stringify(data)
+        };
+        
+        await saveBrc420Mint(mintData);
+        return mintData;
+        
     } catch (error) {
-        logger.error(`Error getting mint address for ${inscriptionId}:`, { message: error.message });
+        logger.debug(`Invalid BRC-420 mint content for ${inscriptionId}: ${error.message}`);
         return null;
     }
 }
 
-// Function to get deployer address (using cached API call)
-// Function to convert inscription ID to transaction ID
-function convertInscriptionIdToTxId(inscriptionId) {
-    return inscriptionId.split('i')[0];
-}
-
-// Function to validate royalty payment for mints (checks the mint transaction, not deploy)
-async function validateMintRoyaltyPayment(deployInscription, mintAddress, mintTransactionId) {
+// Process bitmap inscription with enhanced validation
+async function processBitmap(inscriptionId, bitmapNumber, inscriptionDetails, blockHeight) {
     try {
-        const response = await robustApiCall(`${config.getMempoolApiUrl()}/tx/${mintTransactionId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        const transaction = response.data;
-        const outputs = transaction.vout || [];
+        // Enhanced bitmap validation (Python indexer logic)
+        if (!isValidBitmapNumber(bitmapNumber.toString())) {
+            logger.debug(`Invalid bitmap number format: ${bitmapNumber}`);
+            return null;
+        }
         
-        // Look for output to deployer address with correct royalty amount
-        const royaltyPayment = outputs.find(output => 
-            output.scriptpubkey_address === deployInscription.deployer_address && 
-            output.value >= deployInscription.price * 100000000 // Convert BTC to satoshis
-        );
-
-        const isValidRoyalty = !!royaltyPayment;
-        logger.info(`Mint royalty validation for ${mintTransactionId}: ${isValidRoyalty ? 'VALID' : 'INVALID'} (expected: ${deployInscription.price} BTC to ${deployInscription.deployer_address})`);
-        return isValidRoyalty;
-
+        // Generate unlimited transaction patterns using BitmapProcessor
+        const transactionPatterns = await bitmapProcessor.generateTransactionPatterns(bitmapNumber);
+        
+        const bitmapData = {
+            inscription_id: inscriptionId,
+            bitmap_number: bitmapNumber,
+            block_height: blockHeight,
+            sat_number: inscriptionDetails.sat || null,
+            transaction_patterns: JSON.stringify(transactionPatterns),
+            pattern_metadata: JSON.stringify({
+                pattern_count: transactionPatterns.length,
+                generated_at: new Date().toISOString(),
+                unlimited_generation: true
+            })
+        };
+        
+        await saveBitmap(bitmapData);
+        return bitmapData;
+        
     } catch (error) {
-        logger.error(`Error validating mint royalty payment for ${mintTransactionId}:`, { message: error.message });
-        return false;
-    }
-}
-
-// Function to validate mint content type matches source inscription
-async function validateMintContentType(mintInscriptionId, sourceInscriptionId) {    try {
-        // Get both inscriptions' metadata using cached API calls
-        const [mintDetails, sourceDetails] = await Promise.all([
-            getInscriptionDetailsCached(mintInscriptionId),
-            getInscriptionDetailsCached(sourceInscriptionId)
-        ]);
-
-        if (!mintDetails || !sourceDetails) {
-            logger.error(`Could not get inscription details for content type validation: mint=${!!mintDetails}, source=${!!sourceDetails}`);
-            return false;
-        }
-
-        const mintContentType = mintDetails.content_type;
-        const sourceContentType = sourceDetails.content_type;
-
-        const isValid = mintContentType === sourceContentType;
-        logger.info(`Content type validation for mint ${mintInscriptionId}: ${isValid ? 'VALID' : 'INVALID'} (mint: ${mintContentType}, source: ${sourceContentType})`);
-        return isValid;
-
-    } catch (error) {
-        logger.error(`Error validating content type for mint ${mintInscriptionId}:`, { message: error.message });
-        return false;
-    }
-}
-
-// Function to validate royalty payment
-
-
-// Function to get current mint count
-async function getCurrentMintCount(deployId) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT COUNT(*) as count FROM mints WHERE deploy_id = ?", [deployId], (err, row) => {
-            if (err) {
-                logger.error(`Error getting mint count for deploy ${deployId}:`, { message: err.message });
-                reject(err);
-            } else {
-                resolve(row.count);
-            }
-        });
-    });
-}
-
-// Function to validate mint data
-async function validateMintData(mintId, deployInscription, mintAddress, transactionId) {
-    try {
-        if (!deployInscription) {
-            logger.error(`Deploy inscription not found for mint ID ${mintId}.`);
-            return false;
-        }
-
-        const currentMintCount = await getCurrentMintCount(deployInscription.id);
-        if (currentMintCount >= deployInscription.max) {
-            logger.error(`Mint limit exceeded for deploy ${deployInscription.id}. Current: ${currentMintCount}, Max: ${deployInscription.max}`);
-            return false;
-        }
-
-        logger.info(`Mint validation for ${mintId}: VALID`);
-        return true;
-
-    } catch (error) {
-        logger.error(`Error validating mint data for ${mintId}:`, { message: error.message });
-        return false;
-    }
-}
-
-// Function to get transaction count for a block (for parcel validation)
-async function getBlockTransactionCount(blockHeight) {
-    try {
-        // First check if we have it cached in our database
-        const cachedStats = await new Promise((resolve, reject) => {
-            db.get("SELECT total_transactions FROM block_stats WHERE block_height = ?", [blockHeight], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
-
-        if (cachedStats) {
-            logger.debug(`Using cached transaction count for block ${blockHeight}: ${cachedStats.total_transactions}`);
-            return cachedStats.total_transactions;
-        }
-
-        // Try local HTTP APIs only (no external APIs)
-        const localMempoolUrl = config.getMempoolApiUrl();
-        const apis = [];
-        
-        // Only add local mempool API if it's not an external URL
-        if (localMempoolUrl && !localMempoolUrl.includes('mempool.space') && !localMempoolUrl.includes('blockstream.info')) {
-            apis.push(`${localMempoolUrl}/block-height/${blockHeight}`);
-        }
-        
-        // Try to find local mempool endpoints dynamically
-        const testEndpoints = config.getMempoolApiEndpoints();
-        for (const endpoint of testEndpoints) {
-            if (!endpoint.includes('mempool.space') && !endpoint.includes('blockstream.info')) {
-                apis.push(`${endpoint}/block-height/${blockHeight}`);
-            }
-        }
-        
-        logger.debug(`Trying ${apis.length} local APIs for block ${blockHeight} transaction count`);
-        
-        if (apis.length === 0) {
-            logger.warn(`No local APIs available for block transaction count. Consider configuring API_WALLET_URL to point to local mempool instance.`);
-            return 0; // Return 0 to indicate no local API available
-        }
-
-        for (const apiUrl of apis) {
-            try {
-                // First get block hash
-                const hashResponse = await robustApiCall(apiUrl, {
-                    headers: { 'Accept': 'text/plain' }
-                });
-                
-                const blockHash = hashResponse.data.trim();
-                
-                // Then get full block info
-                const blockInfoUrl = apiUrl.replace(`/block-height/${blockHeight}`, `/block/${blockHash}`);
-                const blockResponse = await robustApiCall(blockInfoUrl, {
-                    headers: { 'Accept': 'application/json' }
-                });
-
-                const transactionCount = blockResponse.data.tx_count || blockResponse.data.transaction_count;
-                
-                if (transactionCount && transactionCount > 0) {
-                    logger.info(`Got transaction count for block ${blockHeight}: ${transactionCount} (from ${apiUrl})`);
-                    
-                    // Cache the result in our database
-                    await saveBlockStats(blockHeight, transactionCount, 0, 0, 0, 0, 0);
-                    
-                    return transactionCount;
-                }
-            } catch (apiError) {
-                logger.debug(`API ${apiUrl} failed: ${apiError.message}`);
-                continue;
-            }
-        }
-
-        logger.warn(`Could not get transaction count for block ${blockHeight} from any API`);
-        return null;
-
-    } catch (error) {
-        logger.error(`Error getting transaction count for block ${blockHeight}:`, { message: error.message });
+        logger.error(`Error processing bitmap ${bitmapNumber}:`, error.message);
         return null;
     }
 }
 
-// Function to save block statistics to the database
-async function saveBlockStats(blockHeight, totalTransactions, totalInscriptions, deployCount, mintCount, bitmapCount, parcelCount) {
+// ================================
+// DATABASE OPERATIONS
+// ================================
+
+async function saveBrc420Deploy(deployData) {
     return new Promise((resolve, reject) => {
         const stmt = db.prepare(`
-            INSERT OR REPLACE INTO block_stats (
-                block_height, 
-                total_transactions, 
-                total_inscriptions, 
-                brc420_deploys, 
-                brc420_mints, 
-                bitmaps, 
-                parcels, 
-                processed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO brc420_deploys 
+            (inscription_id, tick, max_supply, limit_per_mint, decimals, deployer, 
+             block_height, sat_number, deploy_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `);
         
         stmt.run([
-            blockHeight,
-            totalTransactions,
-            totalInscriptions,
-            deployCount,
-            mintCount,
-            bitmapCount,
-            parcelCount,
-            Date.now()
+            deployData.inscription_id,
+            deployData.tick,
+            deployData.max,
+            deployData.lim,
+            deployData.dec,
+            deployData.deployer,
+            deployData.block_height,
+            deployData.sat_number,
+            deployData.deploy_data
         ], function(err) {
             if (err) {
-                logger.error(`Error saving block stats for block ${blockHeight}:`, { message: err.message });
                 reject(err);
             } else {
-                logger.debug(`Block stats saved for block ${blockHeight}: transactions=${totalTransactions}, inscriptions=${totalInscriptions}, deploys=${deployCount}, mints=${mintCount}, bitmaps=${bitmapCount}, parcels=${parcelCount}`);
                 resolve(this.changes);
             }
         });
-        
-        stmt.finalize();
     });
 }
 
-// Function to validate parcel number against block transaction count
-// Helper function to validate parcel format
-// DEBUGGING: Comprehensive content analysis function
-function analyzeInscriptionContent(inscriptionId, content, blockHeight) {
-    const analysis = {
-        inscriptionId,
-        blockHeight,
-        contentLength: content ? content.length : 0,
-        isEmpty: !content || content.length === 0,
-        contentPreview: content ? content.substring(0, 200) : 'EMPTY',
-        patterns: {
-            brc420Deploy: false,
-            brc420Mint: false,
-            hasBrc420: false,
-            isJson: false,
-            startsWithSlash: false,
-            containsBitmap: false
-        }
-    };
-
-    if (content && content.length > 0) {
-        // Check for BRC-420 patterns
-        analysis.patterns.brc420Deploy = content.startsWith('{"p":"brc-420","op":"deploy"');
-        analysis.patterns.brc420Mint = content.trim().startsWith('/content/');
-        analysis.patterns.hasBrc420 = content.includes('brc-420') || content.includes('"p":"brc-420"');
-        analysis.patterns.isJson = content.trim().startsWith('{') && content.trim().endsWith('}');
-        analysis.patterns.startsWithSlash = content.trim().startsWith('/');
-        analysis.patterns.containsBitmap = content.includes('.bitmap');
-
-        // Check for alternative BRC-420 patterns
-        if (analysis.patterns.hasBrc420 && !analysis.patterns.brc420Deploy) {
-            analysis.alternativePattern = true;
-            analysis.alternativeContent = content.substring(0, 300);
-        }
-
-        // Log detailed analysis for potential BRC-420 content
-        if (analysis.patterns.hasBrc420 || analysis.patterns.brc420Deploy || analysis.patterns.brc420Mint) {
-            processingLogger.info(`🔍 BRC-420 Content Analysis for ${inscriptionId}:`);
-            processingLogger.info(`   Block: ${blockHeight}, Length: ${analysis.contentLength}`);
-            processingLogger.info(`   Deploy: ${analysis.patterns.brc420Deploy}`);
-            processingLogger.info(`   Mint: ${analysis.patterns.brc420Mint}`);
-            processingLogger.info(`   Has BRC-420: ${analysis.patterns.hasBrc420}`);
-            processingLogger.info(`   Content: "${analysis.contentPreview}"`);
-        }
-    } else {
-        processingLogger.warn(`⚠️  Empty content for inscription ${inscriptionId} in block ${blockHeight}`);
-    }
-
-    return analysis;
-}
-
-// DEBUGGING: Track content fetching statistics
-let contentStats = {
-    total: 0,
-    empty: 0,
-    brc420Deploy: 0,
-    brc420Mint: 0,
-    brc420Potential: 0,
-    lastReset: Date.now()
-};
-
-function updateContentStats(analysis) {
-    contentStats.total++;
-    if (analysis.isEmpty) contentStats.empty++;
-    if (analysis.patterns.brc420Deploy) contentStats.brc420Deploy++;
-    if (analysis.patterns.brc420Mint) contentStats.brc420Mint++;
-    if (analysis.patterns.hasBrc420) contentStats.brc420Potential++;
-
-    // Log stats every 100 inscriptions
-    if (contentStats.total % 100 === 0) {
-        processingLogger.info(`📊 Content Analysis Stats (last 100): Empty: ${contentStats.empty}, BRC-420 Deploys: ${contentStats.brc420Deploy}, BRC-420 Mints: ${contentStats.brc420Mint}, Potential: ${contentStats.brc420Potential}`);
+async function saveBrc420Mint(mintData) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO brc420_mints 
+            (inscription_id, tick, amount, block_height, sat_number, mint_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `);
         
-        // Reset counters
-        contentStats = {
-            total: 0,
-            empty: 0,
-            brc420Deploy: 0,
-            brc420Mint: 0,
-            brc420Potential: 0,
-            lastReset: Date.now()
-        };
-    }
-}
-
-// DEBUGGING: Sample content logger
-let sampleCount = 0;
-const MAX_SAMPLES = 50;
-
-function logSampleContent(inscriptionId, content, blockHeight) {
-    if (sampleCount >= MAX_SAMPLES) return;
-    
-    sampleCount++;
-    
-    const preview = content ? content.substring(0, 200) : 'EMPTY';
-    const isBrc420 = content && (content.includes('brc-420') || content.includes('"p":"brc-420"'));
-    const isMint = content && content.trim().startsWith('/content/');
-    const isBinary = content && (content.includes('\u0000') || content.charCodeAt(0) > 127);
-    
-    processingLogger.info(`🔎 SAMPLE ${sampleCount}/${MAX_SAMPLES} - Block ${blockHeight}`);
-    processingLogger.info(`   ID: ${inscriptionId}`);
-    processingLogger.info(`   Length: ${content ? content.length : 0} chars`);
-    processingLogger.info(`   Binary: ${isBinary}, BRC-420: ${isBrc420}, Mint: ${isMint}`);
-    processingLogger.info(`   Content: "${preview}"`);
-    
-    if (sampleCount >= MAX_SAMPLES) {
-        processingLogger.info(`📋 Sample collection complete. Check logs above to understand content patterns.`);
-    }
-}
-
-// Function to process inscription
-async function processInscription(inscriptionId, blockHeight) {
-    try {
-        let content = await getInscriptionContentCached(inscriptionId);
-        if (typeof content !== 'string') {
-            content = JSON.stringify(content);
-        }        processingLogger.debug(`Processing inscription ${inscriptionId}: content length=${content.length}, preview="${content.substring(0, 150)}..."`);
-          // DEBUGGING: Comprehensive content analysis
-        const analysis = analyzeInscriptionContent(inscriptionId, content, blockHeight);
-        updateContentStats(analysis);
-        
-        // DEBUGGING: Log sample content for analysis
-        logSampleContent(inscriptionId, content, blockHeight);
-          // Enhanced content analysis for debugging
-        if (!content || content.length === 0) {
-            processingLogger.warn(`Empty content for inscription ${inscriptionId} - skipping BRC-420 processing`);
-            return null;
-        }
-        
-        // Check if content is likely binary data (not text/JSON)
-        const isBinary = content.includes('\u0000') || content.includes('\uFFFD') || 
-                         (content.charCodeAt(0) === 0x89 && content.substring(1, 4) === 'PNG') ||
-                         (content.substring(0, 4) === '\xFF\xD8\xFF') || // JPEG
-                         (content.substring(0, 6) === 'GIF87a' || content.substring(0, 6) === 'GIF89a');
-        
-        if (isBinary) {
-            processingLogger.debug(`Binary content detected for inscription ${inscriptionId} - skipping BRC-420 processing`);
-            return null;
-        }
-        
-        // Check for BRC-420 deploy
-        const isBrc420Deploy = content.startsWith('{"p":"brc-420","op":"deploy"');
-        const isBrc420Mint = content.trim().startsWith('/content/');
-        const hasBrc420Content = content.includes('brc-420') || content.includes('"p":"brc-420"');
-        
-        processingLogger.debug(`BRC-420 pattern analysis for ${inscriptionId}: deploy=${isBrc420Deploy}, mint=${isBrc420Mint}, hasBrc420=${hasBrc420Content}`);
-          // Check for BRC-420 deploy
-        if (isBrc420Deploy) {
-            processingLogger.info(`BRC-420 deploy detected: ${inscriptionId}`);
-            
-            try {
-                const deployData = JSON.parse(content);
-                processingLogger.debug(`Deploy data parsed successfully: ${JSON.stringify(deployData)}`);
-                
-                deployData.deployer_address = await getDeployerAddressCached(inscriptionId);
-                deployData.block_height = blockHeight;
-                deployData.timestamp = Date.now();
-                deployData.source_id = deployData.id;
-
-                processingLogger.debug(`Deploy validation starting for ${inscriptionId}: deployer=${deployData.deployer_address}`);
-
-                // Validate deploy according to BRC-420 spec
-                const isOwnershipValid = await validateDeployerOwnership(deployData);
-                const isUniqueDeployment = await validateUniqueDeployment(deployData.source_id);
-
-                processingLogger.info(`Deploy validation results for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
-
-                if (isOwnershipValid && isUniqueDeployment) {
-                    await saveDeploy(deployData);
-                    processingLogger.info(`✅ BRC-420 deploy inscription saved: ${inscriptionId}`);
-                    return { type: 'deploy' };
-                } else {
-                    processingLogger.warn(`❌ BRC-420 deploy validation failed for ${inscriptionId}: ownership=${isOwnershipValid}, unique=${isUniqueDeployment}`);
-                }
-            } catch (parseError) {
-                processingLogger.error(`Failed to parse BRC-420 deploy JSON for ${inscriptionId}: ${parseError.message}`);
-                processingLogger.debug(`Raw content that failed to parse: ${content}`);
-            }        } else if (content.trim().startsWith('/content/')) {
-            // BRC-420 mint format: /content/<INSCRIPTION_ID>
-            const trimmedContent = content.trim();
-            processingLogger.info(`Potential BRC-420 mint detected: ${inscriptionId} -> ${trimmedContent}`);
-            
-            // More flexible regex to match inscription ID format: 64 hex chars + 'i' + numbers
-            const mintMatch = trimmedContent.match(/^\/content\/([a-f0-9]{64}i\d+)$/);
-            
-            if (mintMatch) {
-                const sourceInscriptionId = mintMatch[1]; // Extract the inscription ID
-                processingLogger.info(`✅ Valid BRC-420 mint format detected: ${inscriptionId} -> source: ${sourceInscriptionId}`);
-                
-                const deployInscription = await getDeployById(sourceInscriptionId);
-
-                if (deployInscription) {
-                    processingLogger.info(`✅ Found deploy for mint ${inscriptionId}: ${deployInscription.id}`);
-                    const mintAddress = await getMintAddress(inscriptionId);
-                    const transactionId = convertInscriptionIdToTxId(inscriptionId);
-
-                    if (mintAddress) {
-                        processingLogger.info(`Validating mint ${inscriptionId}: address=${mintAddress}, tx=${transactionId}`);
-                        const isRoyaltyPaid = await validateMintRoyaltyPayment(deployInscription, mintAddress, transactionId);
-                        const isMintValid = await validateMintData(sourceInscriptionId, deployInscription, mintAddress, transactionId);
-                        const isContentTypeValid = await validateMintContentType(inscriptionId, sourceInscriptionId);
-
-                        processingLogger.info(`Mint validation results for ${inscriptionId}: royalty=${isRoyaltyPaid}, valid=${isMintValid}, contentType=${isContentTypeValid}`);
-
-                        if (isRoyaltyPaid && isMintValid && isContentTypeValid) {
-                            await saveMint({
-                                id: inscriptionId,
-                                deploy_id: deployInscription.id,
-                                source_id: sourceInscriptionId,
-                                mint_address: mintAddress,
-                                transaction_id: transactionId,
-                                block_height: blockHeight,
-                                timestamp: Date.now()
-                            });
-                            processingLogger.info(`✅ BRC-420 mint saved: ${inscriptionId}`);
-                            return { type: 'mint' };
-                        } else {
-                            processingLogger.warn(`❌ BRC-420 mint validation failed for ${inscriptionId}: royalty=${isRoyaltyPaid}, valid=${isMintValid}, contentType=${isContentTypeValid}`);
-                        }
-                    } else {
-                        processingLogger.warn(`❌ Could not get mint address for ${inscriptionId}`);
-                    }
-                } else {
-                    processingLogger.warn(`❌ No deploy found for source inscription ${sourceInscriptionId}`);
-                }
+        stmt.run([
+            mintData.inscription_id,
+            mintData.tick,
+            mintData.amt,
+            mintData.block_height,
+            mintData.sat_number,
+            mintData.mint_data
+        ], function(err) {
+            if (err) {
+                reject(err);
             } else {
-                // Log potential mints that don't match the exact pattern
-                processingLogger.debug(`Content starts with /content/ but doesn't match BRC-420 mint pattern: ${inscriptionId} -> ${trimmedContent}`);
+                resolve(this.changes);
             }
-        } else if (content.includes('.bitmap')) {
-            // Use BitmapProcessor for clean bitmap and parcel processing
-            processingLogger.info(`Bitmap/parcel content detected: ${inscriptionId} -> ${content.trim()}`);
-            
-            const result = await bitmapProcessor.processBitmapOrParcel(
-                content.trim(), 
-                inscriptionId, 
-                blockHeight, 
-                getBlockTransactionCount
-            );
-            
-            if (result) {
-                processingLogger.info(`${result.type} processed successfully: ${result.id}`);
-                return result;
-            } else {
-                processingLogger.debug(`Bitmap/parcel processing failed or skipped for: ${inscriptionId}`);
-            }
-        }
-
-        return null;
-    } catch (error) {
-        logger.error(`Error processing inscription ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
+        });
+    });
 }
 
-// Function to process a block
+async function saveBitmap(bitmapData) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO bitmaps 
+            (inscription_id, bitmap_number, block_height, sat_number, 
+             transaction_patterns, pattern_metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `);
+        
+        stmt.run([
+            bitmapData.inscription_id,
+            bitmapData.bitmap_number,
+            bitmapData.block_height,
+            bitmapData.sat_number,
+            bitmapData.transaction_patterns,
+            bitmapData.pattern_metadata
+        ], function(err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(this.changes);
+            }
+        });
+    });
+}
+
+async function saveFailedInscription(inscriptionId, blockHeight, errorMessage) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO failed_inscriptions 
+            (inscription_id, block_height, error_message, created_at)
+            VALUES (?, ?, ?, datetime('now'))
+        `);
+        
+        stmt.run([inscriptionId, blockHeight, errorMessage], function(err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(this.changes);
+            }
+        });
+    });
+}
+
+// ================================
+// BLOCK PROCESSING LOGIC
+// ================================
+
+// Process a single block completely
 async function processBlock(blockHeight) {
-    const startTime = Date.now();
-    processingLogger.info(`Starting COMPLETE processing of block: ${blockHeight} with NO LIMITS`);
+    logger.info(`🔍 Processing block ${blockHeight}`);
     
     try {
-        // Get ALL inscriptions for this block with no limits
-        const allInscriptions = await getInscriptionsForBlock(blockHeight);
+        // Get all inscriptions for this block with unlimited pagination
+        const inscriptionIds = await getInscriptionsForBlock(blockHeight);
         
-        if (allInscriptions.length > 0) {
-            processingLogger.info(`Block ${blockHeight}: Processing ALL ${allInscriptions.length} inscriptions with NO LIMITS`);
-            
-            let mintCount = 0;
-            let deployCount = 0;
-            let bitmapCount = 0;
-            let parcelCount = 0;
-            let failedCount = 0;
-            
-            // Get transaction count for this block
-            const transactionCount = await getBlockTransactionCount(blockHeight);
-            
-            // Log mint detection stats
-            // Log mint detection stats
-            const bitmapMints = allInscriptions.filter(i => i.content_type && 
-                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
-                i.content && (i.content.includes('bitmap') || i.content.includes('Bitmap')));
-            const parcelMints = allInscriptions.filter(i => i.content_type && 
-                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
-                i.content && (i.content.includes('parcel') || i.content.includes('Parcel')));
-            const brc420Mints = allInscriptions.filter(i => i.content_type && 
-                (i.content_type.includes('text/plain') || i.content_type.includes('application/json')) &&
-                i.content && (i.content.includes('brc-420') || i.content.includes('BRC-420')));
-            
-            logger.info(`Mint detection for block ${blockHeight}: ${bitmapMints.length} bitmap, ${parcelMints.length} parcel, ${brc420Mints.length} BRC-420`);
-            if (bitmapMints.length > 0 || parcelMints.length > 0 || brc420Mints.length > 0) {
-                logger.info(`Total mint detections: ${bitmapMints.length + parcelMints.length + brc420Mints.length} inscriptions`);
-            }
-            
-            // Process ALL inscriptions with unlimited processing
-            const results = await processAllInscriptionsCompletely(allInscriptions, blockHeight);
-            
-            // Count results
-            results.forEach(result => {
-                if (result.status === 'fulfilled' && result.value) {
-                    if (result.value.type === 'mint') mintCount++;
-                    else if (result.value.type === 'deploy') deployCount++;
-                    else if (result.value.type === 'bitmap') bitmapCount++;
-                    else if (result.value.type === 'parcel') parcelCount++;
-                } else if (result.status === 'rejected') {
-                    failedCount++;
-                    logger.error(`Error processing inscription:`, { message: result.reason?.message || result.reason });
-                }
-            });
-            
-            // Save comprehensive block statistics
-            await saveBlockStats(
-                blockHeight, 
-                transactionCount || 0, 
-                allInscriptions.length, 
-                deployCount, 
-                mintCount, 
-                bitmapCount, 
-                parcelCount
-            );
-            
-            const processingTime = Date.now() - startTime;
-            const completenessRate = ((allInscriptions.length - failedCount) / allInscriptions.length * 100).toFixed(2);
-            
-            processingLogger.info(`Block ${blockHeight} COMPLETELY processed in ${processingTime}ms (${Math.round(processingTime/1000)}s)`);
-            processingLogger.info(`COMPLETENESS: ${completenessRate}% (${allInscriptions.length - failedCount}/${allInscriptions.length})`);
-            processingLogger.info(`Results: Transactions: ${transactionCount || 'Unknown'}, Inscriptions: ${allInscriptions.length}, Mints: ${mintCount}, Deploys: ${deployCount}, Bitmaps: ${bitmapCount}, Parcels: ${parcelCount}, Failed: ${failedCount}`);
-            
-            // Log cache and performance stats every 10 blocks
-            if (blockHeight % 10 === 0) {
-                const cacheStats = apiCache.getStats();
-                const concurrentLimit = adaptiveConcurrency.currentLimit;
-                processingLogger.info(`Performance stats at block ${blockHeight}: Cache ${cacheStats.size} entries (${cacheStats.memoryUsage}), Adaptive concurrency: ${concurrentLimit}`);
-            }
-            
-        } else {
-            // Even if no inscriptions, save block stats with transaction count
-            const transactionCount = await getBlockTransactionCount(blockHeight);
-            await saveBlockStats(blockHeight, transactionCount || 0, 0, 0, 0, 0, 0);
-            
-            const processingTime = Date.now() - startTime;
-            processingLogger.info(`No inscriptions found in block ${blockHeight}. Transactions: ${transactionCount || 'Unknown'} (processed in ${processingTime}ms)`);
+        if (inscriptionIds.length === 0) {
+            logger.info(`📭 Block ${blockHeight}: No inscriptions found`);
+            await markBlockAsProcessed(blockHeight, 0, 0, 0);
+            return { blockHeight, processed: 0, skipped: 0, errors: 0 };
         }
+        
+        logger.info(`📋 Block ${blockHeight}: Found ${inscriptionIds.length} inscriptions, starting optimized processing`);
+        
+        // Process all inscriptions with optimized pipeline
+        const results = await processAllInscriptionsCompletely(inscriptionIds, blockHeight);
+        
+        // Count results
+        let processed = 0, skipped = 0, errors = 0;
+        
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                if (result.value) {
+                    processed++;
+                } else {
+                    skipped++;
+                }
+            } else {
+                errors++;
+            }
+        }
+        
+        // Mark block as processed
+        await markBlockAsProcessed(blockHeight, processed, skipped, errors);
+        
+        logger.info(`✅ Block ${blockHeight} complete: ${processed} processed, ${skipped} skipped, ${errors} errors`);
+        return { blockHeight, processed, skipped, errors };
         
     } catch (error) {
-        logger.error(`Error in COMPLETE processing of block ${blockHeight}:`, { message: error.message });
-        
-        // If we're using local API and get network error, try re-discovering local APIs instead of falling back to external
-        if (useLocalAPI && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT')) {
-            logger.warn('Local API failed, attempting to re-discover local APIs...');
-            
-            // Try to rediscover local APIs
-            const foundLocalAPI = await testLocalOrdinalsAPIConnectivity();
-            if (foundLocalAPI) {
-                logger.info('Successfully rediscovered local API, continuing with local services');
-            } else if (config.useLocalApisOnly()) {
-                logger.error('Local API discovery failed and USE_LOCAL_APIS_ONLY is set - cannot fall back to external API');
-                throw new Error('Local API unavailable and external API fallback disabled');
-            } else {
-                logger.info('Local API rediscovery failed, switching to external API for future requests');
-                API_URL = config.getApiUrl(); // Switch back to external API
-                useLocalAPI = false;
-            }
-        }
-        
-        logErrorBlock(blockHeight);
-        throw error; // Re-throw to ensure block is marked for retry
-    }
-    
-    // PERFORMANCE OPTIMIZATION: Flush any remaining batched operations
-    if (dbBatcher) {
-        await dbBatcher.flushAll();
+        logger.error(`❌ Error processing block ${blockHeight}:`, { message: error.message });
+        throw error;
     }
 }
 
-// Function to retry failed blocks
-async function retryFailedBlocks(currentBlockHeight) {
-    const retryBlockHeight = currentBlockHeight - RETRY_BLOCK_DELAY;
+async function markBlockAsProcessed(blockHeight, processed, skipped, errors) {
+    return new Promise((resolve, reject) => {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO processed_blocks 
+            (block_height, inscriptions_processed, inscriptions_skipped, 
+             inscriptions_errors, processed_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        `);
+        
+        stmt.run([blockHeight, processed, skipped, errors], function(err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(this.changes);
+            }
+        });
+    });
+}
 
-    try {
-        const rows = await new Promise((resolve, reject) => {
-            db.all("SELECT block_height FROM error_blocks WHERE retry_at <= ?", [retryBlockHeight], (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
+// ================================
+// DATABASE INITIALIZATION
+// ================================
+
+function initDatabase() {
+    return new Promise((resolve, reject) => {
+        const dbPath = config.DB_PATH || './db/brc420.db';
+        db = new sqlite3.Database(dbPath, (err) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            
+            logger.info('📊 Connected to SQLite database');
+            
+            // Create tables
+            db.serialize(() => {
+                // BRC-420 deploys table
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS brc420_deploys (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        inscription_id TEXT UNIQUE NOT NULL,
+                        tick TEXT NOT NULL,
+                        max_supply INTEGER,
+                        limit_per_mint INTEGER,
+                        decimals INTEGER DEFAULT 18,
+                        deployer TEXT,
+                        block_height INTEGER,
+                        sat_number INTEGER,
+                        deploy_data TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                // BRC-420 mints table
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS brc420_mints (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        inscription_id TEXT UNIQUE NOT NULL,
+                        tick TEXT NOT NULL,
+                        amount INTEGER,
+                        block_height INTEGER,
+                        sat_number INTEGER,
+                        mint_data TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                // Bitmaps table
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS bitmaps (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        inscription_id TEXT UNIQUE NOT NULL,
+                        bitmap_number INTEGER NOT NULL,
+                        block_height INTEGER,
+                        sat_number INTEGER,
+                        transaction_patterns TEXT,
+                        pattern_metadata TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                // Processed blocks table
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS processed_blocks (
+                        block_height INTEGER PRIMARY KEY,
+                        inscriptions_processed INTEGER DEFAULT 0,
+                        inscriptions_skipped INTEGER DEFAULT 0,
+                        inscriptions_errors INTEGER DEFAULT 0,
+                        processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                // Failed inscriptions table
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS failed_inscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        inscription_id TEXT NOT NULL,
+                        block_height INTEGER,
+                        error_message TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+                
+                // Create indexes for better performance
+                db.run(`CREATE INDEX IF NOT EXISTS idx_brc420_deploys_tick ON brc420_deploys(tick)`);
+                db.run(`CREATE INDEX IF NOT EXISTS idx_brc420_mints_tick ON brc420_mints(tick)`);
+                db.run(`CREATE INDEX IF NOT EXISTS idx_bitmaps_number ON bitmaps(bitmap_number)`);
+                db.run(`CREATE INDEX IF NOT EXISTS idx_blocks_height ON processed_blocks(block_height)`);
+                
+                logger.info('✅ Database tables initialized');
+                resolve();
             });
         });
-
-        if (rows && rows.length > 0) {
-            logger.info(`Retrying ${rows.length} failed blocks before processing block ${currentBlockHeight}`);
-            for (const row of rows) {
-                try {
-                    logger.info(`Retrying failed block ${row.block_height}`);
-                    await processBlock(row.block_height);
-                    
-                    // Delete the error block on successful retry
-                    await new Promise((resolve, reject) => {
-                        db.run("DELETE FROM error_blocks WHERE block_height = ?", [row.block_height], (err) => {
-                            if (err) reject(err);
-                            else resolve();
-                        });
-                    });
-                    
-                    logger.info(`Error block ${row.block_height} successfully retried and deleted.`);
-                } catch (error) {
-                    logger.error(`Failed to process error block ${row.block_height}.`, { message: error.message });
-                }
-            }
-        }
-    } catch (error) {
-        logger.error('Error fetching error blocks:', { message: error.message });
-    }
+    });
 }
 
-// Main indexer processing loop
-async function startProcessing() {
-    logger.info("Starting Bitcoin inscription indexer...");
-    logger.info(`Starting from block: ${currentBlock}`);
-    logger.info(`API URL: ${API_URL}`);
+// ================================
+// API TESTING FUNCTIONS
+// ================================
 
-    // Log Umbrel environment variables for debugging
-    const umbrelVars = {
-        APP_BITCOIN_NODE_IP: process.env.APP_BITCOIN_NODE_IP,
-        APP_ORDINALS_NODE_IP: process.env.APP_ORDINALS_NODE_IP,
-        DEVICE_HOSTNAME: process.env.DEVICE_HOSTNAME,
-        DEVICE_DOMAIN_NAME: process.env.DEVICE_DOMAIN_NAME,
-        ORD_API_URL: process.env.ORD_API_URL
-    };    logger.info('🔍 Umbrel environment variables:', umbrelVars);
-
-    logger.info('🔄 Starting main processing loop...');
-    logger.info(`📊 Current block to process: ${currentBlock}`);
-    logger.info(`💾 Database connection status: ${db ? 'Connected' : 'Not connected'}`);
-
-    while (true) {
+// Test local API capabilities for sat indexing
+async function testLocalApiSatIndexing() {
+    if (!useLocalAPI) {
+        return;
+    }
+    
+    try {
+        logger.info('🔍 Testing local API sat indexing capabilities...');
+        
+        // Test a known inscription to see if sat indexing is supported
+        const testInscriptionId = 'e3e58f1c5abf5b6c7d5c2e8f9a4b3c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c';
+        
         try {
-            processingLogger.info(`Starting to process block ${currentBlock}`);
-            await retryFailedBlocks(currentBlock);
-
-            const row = await new Promise((resolve, reject) => {
-                db.get("SELECT block_height FROM blocks WHERE block_height = ? AND processed = 1", [currentBlock], (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                });
-            });            if (!row) {
-                await processAndTrackBlock(currentBlock);
-                await new Promise((resolve, reject) => {
-                    db.run("INSERT OR REPLACE INTO blocks (block_height, processed) VALUES (?, 1)", [currentBlock], (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-                processingLogger.info(`Block ${currentBlock} marked as processed.`);
-            } else {
-                processingLogger.info(`Block ${currentBlock} already processed. Skipping.`);
-            }currentBlock++;
-            // No delay between blocks for local node - process as fast as possible
-        } catch (error) {
-            logger.error(`Error processing block ${currentBlock}:`, { message: error.message });
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Minimal 1 second delay on error
-        }
-    }
-}
-
-// Function to check and update inscription ownership
-async function checkAndUpdateInscriptionOwnership(inscriptionId, blockHeight) {
-    try {
-        // Get current address from cached API call
-        const inscriptionDetails = await getInscriptionDetailsCached(inscriptionId);
-        if (!inscriptionDetails) {
-            return false;
-        }
-        
-        const currentAddress = inscriptionDetails.address;
-        if (!currentAddress) {
-            return false;
-        }
-
-        // Check if we have this inscription in our database
-        const dbResult = await new Promise((resolve, reject) => {
-            db.get(`
-                SELECT inscription_id, address as old_address, type 
-                FROM wallets 
-                WHERE inscription_id = ?
-            `, [inscriptionId], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
+            const response = await robustApiCall(`${API_URL}/inscription/${testInscriptionId}`, {
+                timeout: 10000
             });
-        });
-
-        if (dbResult && dbResult.old_address !== currentAddress) {
-            // Address has changed - this is a transfer!
-            processingLogger.info(`Transfer detected for ${inscriptionId}: ${dbResult.old_address} -> ${currentAddress}`);
             
-            // Update the wallet address
-            await new Promise((resolve, reject) => {
-                const stmt = db.prepare("UPDATE wallets SET address = ?, updated_at = ? WHERE inscription_id = ?");
-                stmt.run([currentAddress, Date.now(), inscriptionId], function(err) {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
-
-            // Update mint table if this is a mint
-            if (dbResult.type === 'mint') {
-                await new Promise((resolve, reject) => {
-                    const stmt = db.prepare("UPDATE mints SET wallet = ? WHERE id = ?");
-                    stmt.run([currentAddress, inscriptionId], function(err) {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
+            if (response.data && response.data.sat) {
+                localApiHasSatIndex = true;
+                logger.info('✅ Local API supports sat indexing');
+            } else {
+                localApiHasSatIndex = false;
+                logger.info('⚠️ Local API does not support sat indexing, will use hybrid approach');
             }
-
-            // Update deploy table if this is a deploy (though deploys shouldn't transfer for royalty purposes)
-            if (dbResult.type === 'deploy') {
-                await new Promise((resolve, reject) => {
-                    const stmt = db.prepare("UPDATE deploys SET wallet = ? WHERE id = ?");
-                    stmt.run([currentAddress, inscriptionId], function(err) {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            }            // Update parcel table if this is a parcel
-            if (dbResult.type === 'parcel') {
-                await new Promise((resolve, reject) => {
-                    const stmt = db.prepare("UPDATE parcels SET wallet = ? WHERE inscription_id = ?");
-                    stmt.run([currentAddress, inscriptionId], function(err) {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            }
-
-            // Log the transfer in address history (if the table exists)
-            try {
-                await new Promise((resolve, reject) => {
-                    const stmt = db.prepare(`
-                        INSERT INTO address_history 
-                        (inscription_id, old_address, new_address, block_height, timestamp, verification_status) 
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    `);
-                    stmt.run([
-                        inscriptionId, 
-                        dbResult.old_address, 
-                        currentAddress, 
-                        blockHeight, 
-                        Date.now(), 
-                        'verified'
-                    ], function(err) {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-                processingLogger.info(`Transfer history logged for ${inscriptionId}`);
-            } catch (historyError) {
-                // Address history table might not exist, that's okay
-                processingLogger.debug(`Could not log transfer history for ${inscriptionId}: ${historyError.message}`);
-            }
-
-            return true;
+        } catch (error) {
+            localApiHasSatIndex = false;
+            logger.info('⚠️ Could not test sat indexing capabilities, assuming not supported');
         }
-
-        return false;
+        
     } catch (error) {
-        logger.error(`Error checking ownership for ${inscriptionId}:`, { message: error.message });
-        return false;
+        logger.warn('⚠️ Failed to test local API capabilities:', error.message);
+        localApiHasSatIndex = false;
     }
 }
 
-// Function to track transfers for all known inscriptions in a block
-// Function to track transfers for only our known inscriptions (more efficient)
-async function trackKnownInscriptionTransfers(blockHeight) {
-    try {        // Get all our known inscriptions from the database
-        const knownInscriptions = await new Promise((resolve, reject) => {
-            db.all(`
-                SELECT inscription_id, address, type FROM wallets 
-                UNION 
-                SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints
-                UNION
-                SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys
-                UNION
-                SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps
-                UNION
-                SELECT inscription_id, wallet as address, 'parcel' as type FROM parcels
-            `, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
-            });
-        });
+// ================================
+// MAIN EXECUTION LOGIC
+// ================================
 
-        if (knownInscriptions.length === 0) {
-            processingLogger.debug(`No known inscriptions to track transfers for in block ${blockHeight}`);
-            return;
-        }        processingLogger.info(`Checking ${knownInscriptions.length} known inscriptions for transfers in block ${blockHeight}`);
+// Main indexing loop
+async function startUnlimitedIndexing() {
+    logger.info('🚀 Starting UNLIMITED BRC-420 & Bitmap Indexer for complete Bitcoin indexing');
+    logger.info(`📡 API URL: ${API_URL}`);
+    logger.info(`🎯 Starting from block: ${currentBlock}`);
+    logger.info('♾️ NO LIMITS: Will process all blocks until manually stopped');
+    
+    try {
+        await initDatabase();
         
-        // PERFORMANCE OPTIMIZATION: Process transfer checks concurrently
-        const transferResults = await Promise.allSettled(
-            knownInscriptions.map(inscription => 
-                concurrencyLimit(() => checkAndUpdateInscriptionOwnership(inscription.inscription_id, blockHeight))
-            )
+        bitmapProcessor = new BitmapProcessor(
+            db, logger, processingLogger, API_URL, 
+            getInscriptionDetailsCached, getDeployerAddressCached
         );
         
-        let transferCount = 0;
-        transferResults.forEach(result => {
-            if (result.status === 'fulfilled' && result.value) {
-                transferCount++;
-            } else if (result.status === 'rejected') {
-                logger.error(`Error checking inscription transfer:`, { message: result.reason?.message || result.reason });
-            }
-        });
-
-        if (transferCount > 0) {
-            processingLogger.info(`Detected ${transferCount} transfers in block ${blockHeight}`);
+        if (useLocalAPI) {
+            await testLocalApiSatIndexing();
         }
+        
+        let consecutiveErrors = 0;
+        let totalProcessed = 0;
+        const maxConsecutiveErrors = 10; // Allow more retries for network issues
+        const startTime = Date.now();
+        
+        // NO arbitrary limits - run until manually stopped or fatal error
+        while (consecutiveErrors < maxConsecutiveErrors) {
+            const blockStartTime = Date.now();
+            
+            try {
+                // Monitor memory but don't stop processing
+                const memoryUsage = process.memoryUsage();
+                const memoryMB = memoryUsage.heapUsed / 1024 / 1024;
+                
+                // Only emergency cleanup if extremely high memory
+                if (memoryMB > 3072) { // 3GB threshold
+                    logger.warn(`🔥 High memory usage (${memoryMB}MB), triggering emergency cleanup`);
+                    if (apiCache && apiCache.emergencyCleanup) {
+                        apiCache.emergencyCleanup();
+                    }
+                    if (global.gc) global.gc();
+                    
+                    // Brief pause to let GC work, then continue processing
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+                
+                const result = await processBlock(currentBlock);
+                const blockProcessingTime = Date.now() - blockStartTime;
+                
+                await markBlockAsProcessed(
+                    currentBlock, 
+                    result.processed || 0, 
+                    result.skipped || 0, 
+                    result.errors || 0,
+                    blockProcessingTime
+                );
+                
+                consecutiveErrors = 0;
+                totalProcessed++;
+                currentBlock++;
+                
+                // Progress logging (no limits mentioned)
+                if (currentBlock % 100 === 0) {
+                    const cacheStats = apiCache.getStats();
+                    const runtimeHours = (Date.now() - startTime) / (1000 * 60 * 60);
+                    const blocksPerHour = totalProcessed / runtimeHours;
+                    
+                    logger.info(`📈 Progress: Block ${currentBlock} | Processed: ${totalProcessed} blocks | Runtime: ${runtimeHours.toFixed(1)}h | Speed: ${blocksPerHour.toFixed(0)} blocks/h | Cache: ${cacheStats.size} entries (${cacheStats.hitRate}) | Memory: ${Math.round(memoryMB)}MB`);
+                }
+                
+                // Adaptive delay based on processing time (no fixed limits)
+                const baseDelay = 50; // Faster base delay for efficiency
+                const adaptiveDelay = Math.min(baseDelay + Math.max(0, blockProcessingTime - 1000), 2000);
+                await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
+                
+            } catch (error) {
+                consecutiveErrors++;
+                const blockProcessingTime = Date.now() - blockStartTime;
+                
+                logger.error(`❌ Error processing block ${currentBlock} (${consecutiveErrors}/${maxConsecutiveErrors}, ${blockProcessingTime}ms):`, { 
+                    message: error.message,
+                    type: error.constructor.name
+                });
+                
+                // Save failed block for analysis but continue processing
+                await saveFailedInscription(`block_${currentBlock}`, currentBlock, error.message).catch(() => {});
+                
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    logger.error(`💥 Too many consecutive errors (${maxConsecutiveErrors}), manual intervention required`);
+                    logger.error('🔄 Indexer will exit - restart when issues are resolved');
+                    break;
+                }
+                
+                // Exponential backoff for retries but continue unlimited processing
+                const retryDelay = Math.min(RETRY_BLOCK_DELAY * Math.pow(2, consecutiveErrors - 1), 300000); // Max 5 min delay
+                logger.info(`⏳ Retrying block ${currentBlock} in ${retryDelay}ms (attempt ${consecutiveErrors}/${maxConsecutiveErrors})`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+        }
+        
+        // Final statistics (no mention of limits)
+        const finalRuntime = (Date.now() - startTime) / (1000 * 60);
+        const finalMemory = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+        const cacheStats = apiCache.getStats();
+        
+        logger.info(`🏁 Indexing session ended:`);
+        logger.info(`   📊 Blocks processed: ${totalProcessed.toLocaleString()}`);
+        logger.info(`   ⏱️ Runtime: ${(finalRuntime / 60).toFixed(1)} hours`);
+        logger.info(`   🧠 Final memory: ${finalMemory}MB`);
+        logger.info(`   💾 Cache efficiency: ${cacheStats.hitRate} (${cacheStats.size.toLocaleString()} entries)`);
+        logger.info(`   ⚡ Average speed: ${(totalProcessed / finalRuntime * 60).toFixed(1)} blocks/hour`);
+        logger.info(`   📈 Total inscriptions processed: ${cacheStats.processed.toLocaleString()}`);
+        
     } catch (error) {
-        logger.error(`Error tracking known inscription transfers in block ${blockHeight}:`, { message: error.message });
+        logger.error('💥 Fatal error in unlimited indexer:', { 
+            message: error.message,
+            stack: error.stack 
+        });
+        
+        // Don't exit automatically - log error and require manual restart
+        logger.error('🔄 Manual restart required after resolving the fatal error');
+        throw error;
+    } finally {
+        // Enhanced cleanup but don't lose data
+        logger.info('🧹 Starting safe cleanup (preserving critical data)...');
+        
+        if (apiCache && apiCache.destroy) {
+            // Log cache stats before destroying
+            const finalStats = apiCache.getStats();
+            logger.info(`💾 Final cache stats: ${finalStats.size} entries, ${finalStats.hitRate} hit rate`);
+            apiCache.destroy();
+            logger.info('✅ Cache safely destroyed');
+        }
+        
+        if (adaptiveConcurrency && adaptiveConcurrency.destroy) {
+            adaptiveConcurrency.destroy();
+            logger.info('✅ Concurrency manager destroyed');
+        }
+        
+        if (db) {
+            // Ensure all pending writes complete before closing
+            db.run('PRAGMA wal_checkpoint(FULL)', (err) => {
+                if (err) logger.warn('WAL checkpoint warning:', err.message);
+                
+                db.close((err) => {
+                    if (err) logger.error('Database close error:', err);
+                    else logger.info('📊 Database closed safely with all data preserved');
+                });
+            });
+        }
+        
+        logger.info('🏁 Cleanup complete - all indexing data preserved');
     }
 }
 
-// Function to process and track a block
-async function processAndTrackBlock(blockHeight) {
-    await processBlock(blockHeight);
-    await trackKnownInscriptionTransfers(blockHeight);
+// Initialize configuration based on environment
+function initializeConfiguration() {
+    // Check if we should use local API
+    if (process.env.USE_LOCAL_API === 'true' || process.env.ORDINALS_API_URL) {
+        useLocalAPI = true;
+        if (process.env.ORDINALS_API_URL) {
+            API_URL = process.env.ORDINALS_API_URL;
+        }
+        logger.info('🏠 Using local Ordinals API');
+    } else {
+        useLocalAPI = false;
+        logger.info('🌐 Using external Ordinals API');
+    }
+    
+    // Set starting block from environment or config
+    if (process.env.START_BLOCK) {
+        currentBlock = parseInt(process.env.START_BLOCK);
+    }
+    
+    logger.info(`⚙️ Configuration: API=${API_URL}, UseLocal=${useLocalAPI}, StartBlock=${currentBlock}`);
 }
 
-// Export the main function
-module.exports = {
-    async startIndexer() {
-        await initializeIndexerDb();
+// Graceful shutdown handling
+function setupGracefulShutdown() {
+    const shutdown = (signal) => {
+        logger.info(`🔻 Received ${signal}, initiating graceful shutdown...`);
+        logger.info('📊 Preserving all indexing progress and data...');
         
-        // Log configuration mode
-        if (config.useLocalApisOnly()) {
-            logger.info('🔒 Running in LOCAL APIs ONLY mode (no external APIs will be used)');
-            logger.info('📡 Will only use local Ordinals and Mempool HTTP APIs');
-        } else {
-            logger.info('🌐 Running in HYBRID mode (local APIs preferred, external fallback available)');
-        }
+        // Set flag to stop processing new blocks
+        global.shutdownRequested = true;
         
-        // Test local API connectivity before starting
-        await testLocalAPIConnectivity();
-        await testLocalMempoolAPIConnectivity();
-        
-        // Test and log sat extraction strategy
-        if (useLocalAPI) {
-            const hasSatSupport = await testLocalApiSatIndexing();
-            if (hasSatSupport) {
-                logger.info('🎯 SAT EXTRACTION: Using local API with sat indexing support');
-            } else {
-                logger.info('🔄 SAT EXTRACTION: Using hybrid strategy - local API for basic data, external API for sat numbers');
-                logger.info('💡 This avoids making thousands of unnecessary requests to the local API that does not support sat indexing');
-            }
-        } else {
-            logger.info('🌐 SAT EXTRACTION: Using external API only');
-        }
-        
-        // Set up cleanup on process exit
-        process.on('SIGINT', () => {
-            logger.info('Received SIGINT, cleaning up...');
+        // Allow current block to complete
+        setTimeout(() => {
+            logger.info('⏳ Waiting for current block processing to complete...');
+            
+            // Enhanced cleanup preserving all data
             if (apiCache) {
+                const finalStats = apiCache.getStats();
+                logger.info(`💾 Cache stats before shutdown: ${finalStats.size} entries, ${finalStats.processed} total processed`);
                 apiCache.destroy();
             }
+            
+            if (adaptiveConcurrency) {
+                adaptiveConcurrency.destroy();
+            }
+            
             if (db) {
-                db.close((err) => {
-                    if (err) {
-                        logger.error('Error closing database:', err);
-                    } else {
-                        logger.info('Database closed.');
-                    }
-                    process.exit(0);
+                // Force WAL checkpoint to ensure all data is written
+                logger.info('📊 Ensuring all database writes are committed...');
+                db.run('PRAGMA wal_checkpoint(FULL)', (err) => {
+                    if (err) logger.warn('WAL checkpoint warning:', err.message);
+                    
+                    db.close((err) => {
+                        if (err) {
+                            logger.error('Database close error:', err);
+                        } else {
+                            logger.info('📊 Database closed safely - all data preserved');
+                        }
+                        
+                        logger.info('✅ Graceful shutdown complete - indexing progress saved');
+                        process.exit(0);
+                    });
                 });
             } else {
+                logger.info('✅ Graceful shutdown complete');
                 process.exit(0);
             }
-        });
-        
-        process.on('SIGTERM', () => {
-            logger.info('Received SIGTERM, cleaning up...');
-            if (apiCache) {
-                apiCache.destroy();
-            }
-            if (db) {
-                db.close(() => process.exit(0));
-            } else {
-                process.exit(0);
-            }
-        });
-        
-        await startProcessing();
-    }
+        }, 5000); // Give 5 seconds for current operations to complete
+    };
+    
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGUSR1', () => shutdown('SIGUSR1')); // Manual restart signal
+    process.on('SIGUSR2', () => shutdown('SIGUSR2')); // Manual restart signal
+}
+
+// Export for module usage
+module.exports = {
+    startUnlimitedIndexing,
+    processBlock,
+    processInscription,
+    initDatabase,
+    getInscriptionsForBlock,
+    getInscriptionDetailsCached,
+    getInscriptionContentCached,
+    getInscriptionContentPreview,
+    AdaptiveMemorySafeCache
 };
 
-// Function to generate bitmap pattern data for Mondrian visualization
-async function generateBitmapPattern(bitmapNumber, inscriptionId) {
-    try {
-        // Get transaction history for this bitmap from Bitcoin Core or ord
-        const txHistory = await getBitmapTransactionHistory(bitmapNumber, inscriptionId);
-        
-        if (!txHistory || txHistory.length === 0) {
-            logger.warn(`No transaction history found for bitmap ${bitmapNumber}`);
-            return null;
-        }        // Convert transaction data to simple size string for Mondrian visualization
-        const txListArray = txHistory.map(tx => {
-            // Use proper value-to-size conversion (like in the original demo)
-            const btcValue = tx.value / 100000000; // Convert sats to BTC
-            let size;
-            if (btcValue === 0) size = 1;
-            else if (btcValue <= 0.01) size = 1;
-            else if (btcValue <= 0.1) size = 2;
-            else if (btcValue <= 1) size = 3;
-            else if (btcValue <= 10) size = 4;
-            else if (btcValue <= 100) size = 5;
-            else if (btcValue <= 1000) size = 6;
-            else if (btcValue <= 10000) size = 7;
-            else if (btcValue <= 100000) size = 8;
-            else if (btcValue <= 1000000) size = 9;
-            else size = 9;
-            
-            return size; // Return simple number for MondrianLayout
-        });
-
-        // Just store the simple pattern string - no extra metadata needed
-        const patternString = txListArray.join(''); // "554433221"
-
-        // Save pattern to database
-        return new Promise((resolve, reject) => {
-            const stmt = db.prepare(`
-                INSERT OR REPLACE INTO bitmap_patterns 
-                (bitmap_number, pattern_string) 
-                VALUES (?, ?)
-            `);
-              stmt.run([
-                bitmapNumber,
-                patternString
-            ], function(err) {
-                if (err) {
-                    logger.error(`Error saving pattern for bitmap ${bitmapNumber}:`, { message: err.message });
-                    reject(err);
-                } else {
-                    logger.info(`Pattern saved for bitmap ${bitmapNumber}: ${patternString}`);
-                    resolve(patternString);
-                }
-            });
-        });
-
-    } catch (error) {
-        logger.error(`Error generating pattern for bitmap ${bitmapNumber}:`, { message: error.message });
-        return null;
-    }
-}
-
-// Function to get transaction history for a bitmap
-async function getBitmapTransactionHistory(bitmapNumber, inscriptionId) {
-    try {
-        // Try to get transaction history from ord API
-        const txHistory = await getInscriptionTransactionsCached(inscriptionId);
-        
-        if (txHistory && txHistory.length > 0) {
-            return txHistory;
-        }
-
-        // Fallback: Generate synthetic transaction data based on bitmap number
-        logger.info(`Generating synthetic transaction data for bitmap ${bitmapNumber}`);
-        return generateSyntheticTransactionData(bitmapNumber);
-
-    } catch (error) {
-        logger.warn(`Error fetching transaction history for bitmap ${bitmapNumber}, using synthetic data:`, { message: error.message });
-        return generateSyntheticTransactionData(bitmapNumber);
-    }
-}
-
-// Function to get inscription transaction history (cached)
-async function getInscriptionTransactionsCached(inscriptionId) {
-    const cacheKey = `tx_history_${inscriptionId}`;
+// Main execution when run directly
+if (require.main === module) {
+    initializeConfiguration();
+    setupGracefulShutdown();
     
-    try {
-        // Check cache first
-        const cached = apiCache.get(cacheKey);
-        if (cached !== null) {
-            return cached;
-        }
-
-        // Try ord API endpoint
-        const response = await robustApiCall(`${API_URL}/inscription/${inscriptionId}/transactions`, {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        if (response.data && Array.isArray(response.data)) {
-            const transactions = response.data.map(tx => ({
-                txid: tx.txid || tx.id,
-                blockHeight: tx.block_height || tx.blockHeight || 0,
-                value: tx.value || tx.output_value || Math.floor(Math.random() * 1000000),
-                timestamp: tx.timestamp || new Date().toISOString()
-            }));
-
-            apiCache.set(cacheKey, transactions);
-            return transactions;
-        }
-
-        return null;
-
-    } catch (error) {
-        logger.debug(`Error fetching inscription transactions for ${inscriptionId}:`, { message: error.message });
-        return null;
-    }
-}
-
-// Function to generate synthetic transaction data for visualization
-function generateSyntheticTransactionData(bitmapNumber) {
-    // Remove the 20 transaction limit - generate based on bitmap number
-    const numTransactions = Math.max(3, Math.floor(bitmapNumber / 10000) + 3);
-    const transactions = [];
-    
-    for (let i = 0; i < numTransactions; i++) {
-        transactions.push({
-            txid: `synthetic_${bitmapNumber}_${i}`,
-            blockHeight: 830000 + Math.floor(bitmapNumber / 1000) + i,
-            value: Math.floor(Math.random() * 1000000) + 546, // Random value between 546 and 1M sats
-            timestamp: new Date(Date.now() - (numTransactions - i) * 86400000).toISOString() // Spread over days
-        });
-    }
-    
-    return transactions;
+    // Start unlimited indexing
+    startUnlimitedIndexing().catch(error => {
+        logger.error('💥 Unhandled error in unlimited indexer:', error);
+        logger.error('🔄 Manual restart required to continue complete indexing');
+        process.exit(1);
+    });
 }

@@ -1,9 +1,10 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 const config = require('../config');
 const router = express.Router();
 
-// Create database connection with the same path as server.js and optimize for local node
+// Use the same database path as the indexer
 const dbPath = config.DB_PATH || './db/brc420.db';
 let db = null;
 
@@ -11,262 +12,318 @@ let db = null;
 try {
     db = new sqlite3.Database(dbPath, (err) => {
         if (err) {
-            console.error('Routes: Error opening database:', err.message);
-            console.log('Routes: API endpoints will return errors until database is available');
+            console.error('API Routes: Error opening database:', err.message);
+            console.log('API Routes: Endpoints will return errors until database is available');
         } else {
-            console.log('Routes: Connected to SQLite database for API endpoints');
+            console.log('API Routes: Connected to indexer database');
             
-            // Apply performance optimizations for local node
+            // Apply performance optimizations
             db.serialize(() => {
                 db.run("PRAGMA journal_mode = WAL");
                 db.run("PRAGMA synchronous = NORMAL");
-                db.run("PRAGMA cache_size = -32000"); // 32MB cache for API queries
+                db.run("PRAGMA cache_size = -32000"); // 32MB cache
                 db.run("PRAGMA temp_store = MEMORY");
-                console.log('Routes: Database optimized for local node performance');
+                console.log('API Routes: Database optimized for performance');
             });
         }
     });
 } catch (error) {
-    console.error('Routes: Failed to create database connection:', error.message);
+    console.error('API Routes: Failed to create database connection:', error.message);
 }
 
-// Helper function for pagination - optimized for local node
+// Helper function for pagination
 function paginate(query, params, page = 1, limit = 100) { 
     const offset = (page - 1) * limit;
-    // Cap maximum limit to prevent memory issues on very large queries
-    const cappedLimit = Math.min(limit, 10000); // Increased to 10,000 for local node
+    const cappedLimit = Math.min(limit, 1000); // Cap at 1000 for performance
     return {
         query: query + ` LIMIT ${cappedLimit} OFFSET ${offset}`,
         params: params
     };
 }
 
-// Health check endpoint for API
+// Health check endpoint
 router.get('/health', (req, res) => {
     const health = {
         status: 'ok',
         timestamp: new Date().toISOString(),
-        database: db ? 'connected' : 'disconnected'
+        database: db ? 'connected' : 'disconnected',
+        indexer: 'BRC-420 & Bitmap Complete Indexer'
     };
     res.json(health);
 });
 
-// Configuration endpoint for frontend
-router.get('/config', (req, res) => {
-    const configData = {
-        localOrdinalsUrl: config.getLocalOrdinalsUrl(),
-        isUmbrelEnvironment: config.isUmbrelEnvironment(),
-        useLocalApisOnly: config.useLocalApisOnly(),
-        startBlock: config.START_BLOCK
-    };
-    res.json(configData);
-});
+// ==================== BRC-420 ENDPOINTS ====================
 
-// Endpoint to get deploy inscriptions by ID or name - optimized for local node
-router.get('/deploys', (req, res) => {
+// Get all BRC-420 deploys
+router.get('/brc420/deploys', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
-    const { id, name, page = 1, limit = 100 } = req.query; // Increased default limit
-    let query, params;
-
-    if (id) {
-        query = "SELECT * FROM deploys WHERE id = ?";
-        params = [id];
-    } else if (name) {
-        query = "SELECT * FROM deploys WHERE name LIKE ?";
-        params = [`%${name}%`]; // Using LIKE to allow partial name matches
-    } else {
-        query = "SELECT * FROM deploys ORDER BY block_height DESC";
-        params = [];
+    const { page = 1, limit = 50, search = '' } = req.query;
+    let query = "SELECT * FROM brc420_deploys";
+    let params = [];
+    
+    if (search) {
+        query += " WHERE tick LIKE ? OR inscription_id LIKE ?";
+        params = [`%${search}%`, `%${search}%`];
     }
-
+    
+    query += " ORDER BY block_height DESC";
+    
     const paginatedQuery = paginate(query, params, page, limit);
 
     db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
-        return res.json(rows);
+        
+        // Get total count
+        db.get("SELECT COUNT(*) as total FROM brc420_deploys", (countErr, countRow) => {
+            if (countErr) {
+                return res.status(500).json({ error: countErr.message });
+            }
+            
+            res.json({
+                deploys: rows,
+                total: countRow.total,
+                page: parseInt(page),
+                limit: parseInt(limit)
+            });
+        });
     });
 });
 
-// Endpoint to validate a mint by mint ID
-router.get('/mint/:mint_id', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const mintId = req.params.mint_id;
-
-    db.get("SELECT * FROM mints WHERE id = ?", [mintId], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Mint not found" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get mints for a specific deploy ID
-router.get('/deploy/:deploy_id/mints', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const deployId = req.params.deploy_id;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate("SELECT * FROM mints WHERE deploy_id = ? ORDER BY block_height DESC", [deployId], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get wallet information for an inscription
-router.get('/wallet/:inscription_id', (req, res) => {
+// Get BRC-420 deploy by inscription ID
+router.get('/brc420/deploy/:inscription_id', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
     const inscriptionId = req.params.inscription_id;
 
-    // Updated to query deploys, mints, and bitmaps directly
+    db.get("SELECT * FROM brc420_deploys WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "BRC-420 deploy not found" });
+        }
+        
+        // Parse deploy_data if it exists
+        if (row.deploy_data) {
+            try {
+                row.parsed_deploy_data = JSON.parse(row.deploy_data);
+            } catch (parseErr) {
+                console.warn('Failed to parse deploy_data for', inscriptionId);
+            }
+        }
+        
+        return res.json(row);
+    });
+});
+
+// Get all BRC-420 mints
+router.get('/brc420/mints', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { page = 1, limit = 50, tick = '', search = '' } = req.query;
+    let query = "SELECT * FROM brc420_mints";
+    let params = [];
+    
+    let whereConditions = [];
+    
+    if (tick) {
+        whereConditions.push("tick = ?");
+        params.push(tick);
+    }
+    
+    if (search) {
+        whereConditions.push("(inscription_id LIKE ? OR tick LIKE ?)");
+        params.push(`%${search}%`, `%${search}%`);
+    }
+    
+    if (whereConditions.length > 0) {
+        query += " WHERE " + whereConditions.join(" AND ");
+    }
+    
+    query += " ORDER BY block_height DESC";
+    
+    const paginatedQuery = paginate(query, params, page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        // Parse mint_data for each row
+        const processedRows = rows.map(row => {
+            if (row.mint_data) {
+                try {
+                    row.parsed_mint_data = JSON.parse(row.mint_data);
+                } catch (parseErr) {
+                    console.warn('Failed to parse mint_data for', row.inscription_id);
+                }
+            }
+            return row;
+        });
+        
+        res.json({
+            mints: processedRows,
+            page: parseInt(page),
+            limit: parseInt(limit)
+        });
+    });
+});
+
+// Get BRC-420 mint by inscription ID
+router.get('/brc420/mint/:inscription_id', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const inscriptionId = req.params.inscription_id;
+
+    db.get("SELECT * FROM brc420_mints WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "BRC-420 mint not found" });
+        }
+        
+        // Parse mint_data if it exists
+        if (row.mint_data) {
+            try {
+                row.parsed_mint_data = JSON.parse(row.mint_data);
+            } catch (parseErr) {
+                console.warn('Failed to parse mint_data for', inscriptionId);
+            }
+        }
+        
+        return res.json(row);
+    });
+});
+
+// Get BRC-420 summary statistics
+router.get('/brc420/summary', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
     const query = `
-        SELECT * FROM (
-            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE id = ?
-            UNION ALL
-            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE id = ?
-            UNION ALL
-            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE inscription_id = ?
-        ) WHERE inscription_id = ?
-    `;
-
-    db.get(query, [inscriptionId, inscriptionId, inscriptionId, inscriptionId], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Wallet not found for this inscription" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get all inscriptions for a specific address
-router.get('/address/:address/inscriptions', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const address = req.params.address;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate(`
-        SELECT * FROM (
-            SELECT id as inscription_id, wallet as address, 'deploy' as type FROM deploys WHERE wallet = ?
-            UNION ALL
-            SELECT id as inscription_id, wallet as address, 'mint' as type FROM mints WHERE wallet = ?
-            UNION ALL
-            SELECT inscription_id, wallet as address, 'bitmap' as type FROM bitmaps WHERE wallet = ?
-        ) WHERE address = ?
-    `, [address, address, address, address], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get the processing status of a specific block
-router.get('/block/:block_height/status', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const blockHeight = req.params.block_height;
-
-    db.get("SELECT * FROM blocks WHERE block_height = ?", [blockHeight], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Block not found or not yet processed" });
-        }
-        return res.json({ block_height: row.block_height, processed: row.processed === 1 });
-    });
-});
-
-// Endpoint to get error blocks
-router.get('/error-blocks', (req, res) => {
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate("SELECT * FROM error_blocks ORDER BY retry_at", [], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get a summary of a specific deploy by ID
-router.get('/deploy/:deploy_id/summary', (req, res) => {
-    const deployId = req.params.deploy_id;
-
-    db.get(`SELECT 
-                deploys.*, 
-                COUNT(mints.id) as total_mints 
-            FROM deploys 
-            LEFT JOIN mints ON deploys.id = mints.deploy_id 
-            WHERE deploys.id = ? 
-            GROUP BY deploys.id`, 
-            [deployId], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Deploy not found" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get all deploys with their mint counts
-router.get('/deploys/with-mints', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate(`
         SELECT 
-            deploys.*, 
-            COUNT(mints.id) as total_mints 
-        FROM deploys 
-        LEFT JOIN mints ON deploys.id = mints.deploy_id 
-        GROUP BY deploys.id`, [], page, limit);
+            (SELECT COUNT(*) FROM brc420_deploys) as total_deploys,
+            (SELECT COUNT(*) FROM brc420_mints) as total_mints,
+            (SELECT COUNT(DISTINCT tick) FROM brc420_deploys) as unique_ticks,
+            (SELECT MAX(block_height) FROM brc420_deploys) as latest_deploy_block,
+            (SELECT MAX(block_height) FROM brc420_mints) as latest_mint_block
+    `;
+    
+    db.get(query, [], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        return res.json(row || {});
+    });
+});
+
+// ==================== BITMAP ENDPOINTS ====================
+
+// Get all bitmaps
+router.get('/bitmaps', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { page = 1, limit = 50, sort = 'bitmap_number_desc', search = '' } = req.query;
+    let query = "SELECT b.*, bp.pattern_string FROM bitmaps b LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number";
+    let params = [];
+
+    if (search) {
+        query += " WHERE (CAST(b.bitmap_number AS TEXT) LIKE ? OR b.inscription_id LIKE ?)";
+        params = [`%${search}%`, `%${search}%`];
+    }
+
+    // Build ORDER BY clause
+    let orderBy = ' ORDER BY b.bitmap_number DESC';
+    switch (sort) {
+        case 'bitmap_number_asc':
+            orderBy = ' ORDER BY b.bitmap_number ASC';
+            break;
+        case 'bitmap_number_desc':
+            orderBy = ' ORDER BY b.bitmap_number DESC';
+            break;
+        case 'block_height_asc':
+            orderBy = ' ORDER BY b.block_height ASC';
+            break;
+        case 'block_height_desc':
+            orderBy = ' ORDER BY b.block_height DESC';
+            break;
+        case 'random':
+            orderBy = ' ORDER BY RANDOM()';
+            break;
+    }
+    
+    query += orderBy;
+    const paginatedQuery = paginate(query, params, page, limit);
 
     db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
-        return res.json(rows);
+        
+        // Process pattern data for each bitmap
+        const processedRows = rows.map(row => {
+            if (row.pattern_string) {
+                row.pattern = 'mondrian';
+                row.txList = row.pattern_string.split('').map(Number);
+                delete row.pattern_string; // Remove raw string from response
+            } else {
+                row.pattern = null;
+                row.txList = [];
+            }
+            
+            // Parse transaction_patterns and pattern_metadata if they exist
+            if (row.transaction_patterns) {
+                try {
+                    row.parsed_transaction_patterns = JSON.parse(row.transaction_patterns);
+                } catch (parseErr) {
+                    console.warn('Failed to parse transaction_patterns for bitmap', row.bitmap_number);
+                }
+            }
+            
+            if (row.pattern_metadata) {
+                try {
+                    row.parsed_pattern_metadata = JSON.parse(row.pattern_metadata);
+                } catch (parseErr) {
+                    console.warn('Failed to parse pattern_metadata for bitmap', row.bitmap_number);
+                }
+            }
+            
+            return row;
+        });
+        
+        // Get total count
+        db.get("SELECT COUNT(*) as total FROM bitmaps", (countErr, countRow) => {
+            if (countErr) {
+                return res.status(500).json({ error: countErr.message });
+            }
+            
+            res.json({
+                bitmaps: processedRows,
+                total: countRow.total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(countRow.total / limit)
+            });
+        });
     });
 });
 
-// New endpoint to get bitmap by inscription ID
+// Get bitmap by inscription ID
 router.get('/bitmap/:inscription_id', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
@@ -274,139 +331,121 @@ router.get('/bitmap/:inscription_id', (req, res) => {
     
     const inscriptionId = req.params.inscription_id;
 
-    db.get("SELECT * FROM bitmaps WHERE inscription_id = ?", [inscriptionId], (err, row) => {
+    const query = `
+        SELECT b.*, bp.pattern_string 
+        FROM bitmaps b 
+        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number 
+        WHERE b.inscription_id = ?
+    `;
+
+    db.get(query, [inscriptionId], (err, row) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
         if (!row) {
             return res.status(404).json({ error: "Bitmap not found" });
         }
+        
+        // Process pattern data
+        if (row.pattern_string) {
+            row.pattern = 'mondrian';
+            row.txList = row.pattern_string.split('').map(Number);
+            delete row.pattern_string;
+        } else {
+            row.pattern = null;
+            row.txList = [];
+        }
+        
+        // Parse JSON fields
+        if (row.transaction_patterns) {
+            try {
+                row.parsed_transaction_patterns = JSON.parse(row.transaction_patterns);
+            } catch (parseErr) {
+                console.warn('Failed to parse transaction_patterns for bitmap', row.bitmap_number);
+            }
+        }
+        
+        if (row.pattern_metadata) {
+            try {
+                row.parsed_pattern_metadata = JSON.parse(row.pattern_metadata);
+            } catch (parseErr) {
+                console.warn('Failed to parse pattern_metadata for bitmap', row.bitmap_number);
+            }
+        }
+        
         return res.json(row);
     });
 });
 
-// Endpoint to get bitmaps by bitmap number
+// Get bitmap by bitmap number
 router.get('/bitmaps/number/:bitmap_number', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
-    const bitmapNumber = req.params.bitmap_number;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE bitmap_number = ?", [bitmapNumber], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get all bitmaps for a specific address
-router.get('/address/:address/bitmaps', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
+    const bitmapNumber = parseInt(req.params.bitmap_number);
     
-    const address = req.params.address;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate("SELECT * FROM bitmaps WHERE address = ?", [address], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get a summary of bitmaps (total count, latest bitmap number, etc.)
-router.get('/bitmaps/summary', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
+    if (isNaN(bitmapNumber)) {
+        return res.status(400).json({ error: 'Invalid bitmap number' });
     }
-    
-    db.get(`
-        SELECT 
-            COUNT(*) as total_bitmaps,
-            MAX(bitmap_number) as latest_bitmap_number,
-            MIN(timestamp) as earliest_timestamp,
-            MAX(timestamp) as latest_timestamp
-        FROM bitmaps
-    `, (err, row) => {
+
+    const query = `
+        SELECT b.*, bp.pattern_string 
+        FROM bitmaps b 
+        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number 
+        WHERE b.bitmap_number = ?
+    `;
+
+    db.get(query, [bitmapNumber], (err, row) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
+        if (!row) {
+            return res.status(404).json({ error: "Bitmap not found" });
+        }
+        
+        // Process pattern data
+        if (row.pattern_string) {
+            row.pattern = 'mondrian';
+            row.txList = row.pattern_string.split('').map(Number);
+            delete row.pattern_string;
+        } else {
+            row.pattern = null;
+            row.txList = [];
+        }
+        
+        // Parse JSON fields
+        if (row.transaction_patterns) {
+            try {
+                row.parsed_transaction_patterns = JSON.parse(row.transaction_patterns);
+            } catch (parseErr) {
+                console.warn('Failed to parse transaction_patterns for bitmap', row.bitmap_number);
+            }
+        }
+        
+        if (row.pattern_metadata) {
+            try {
+                row.parsed_pattern_metadata = JSON.parse(row.pattern_metadata);
+            } catch (parseErr) {
+                console.warn('Failed to parse pattern_metadata for bitmap', row.bitmap_number);
+            }
+        }
+        
         return res.json(row);
     });
 });
 
-// New endpoint to get all bitmaps with optional pagination
-router.get('/bitmaps', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { page = 1, limit = 20, sort = 'bitmap_number_desc' } = req.query;
-    const offset = (page - 1) * limit;
-
-    // Build ORDER BY clause
-    let orderBy = 'ORDER BY bitmap_number DESC'; // Default
-    
-    switch (sort) {
-        case 'bitmap_number_asc':
-            orderBy = 'ORDER BY bitmap_number ASC';
-            break;
-        case 'bitmap_number_desc':
-            orderBy = 'ORDER BY bitmap_number DESC';
-            break;
-        case 'block_height_asc':
-            orderBy = 'ORDER BY block_height ASC';
-            break;
-        case 'block_height_desc':
-            orderBy = 'ORDER BY block_height DESC';
-            break;
-        case 'random':
-            orderBy = 'ORDER BY RANDOM()';
-            break;
-        default:
-            orderBy = 'ORDER BY bitmap_number DESC';
-    }
-
-    const query = `SELECT * FROM bitmaps ${orderBy} LIMIT ? OFFSET ?`;
-
-    db.all(query, [limit, offset], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        
-        // Get total count for pagination
-        db.get("SELECT COUNT(*) as total FROM bitmaps", (countErr, countRow) => {
-            if (countErr) {
-                return res.status(500).json({ error: countErr.message });
-            }
-            
-            return res.json({
-                bitmaps: rows,
-                total: countRow.total,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                total_pages: Math.ceil(countRow.total / limit)
-            });
-        });
-    });
-});
-
-// Endpoint to get bitmap pattern data for visualization
+// Get bitmap pattern for visualization
 router.get('/bitmap/:bitmap_number/pattern', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
-    const bitmapNumber = req.params.bitmap_number;
+    const bitmapNumber = parseInt(req.params.bitmap_number);
+    
+    if (isNaN(bitmapNumber)) {
+        return res.status(400).json({ error: 'Invalid bitmap number' });
+    }
 
     db.get("SELECT * FROM bitmap_patterns WHERE bitmap_number = ?", [bitmapNumber], (err, row) => {
         if (err) {
@@ -427,770 +466,27 @@ router.get('/bitmap/:bitmap_number/pattern', (req, res) => {
             txList: txList,
             squareSizes: txList // Backward compatibility
         };
-          return res.json(responseData);
-    });
-});
-
-// Endpoint to get enhanced bitmap data with sat numbers
-router.get('/bitmaps/enhanced', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;    const query = `
-        SELECT 
-            b.*,
-            bp.pattern_string
-        FROM bitmaps b
-        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
-        ORDER BY b.bitmap_number DESC
-        LIMIT ? OFFSET ?
-    `;
-
-    db.all(query, [limit, offset], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }        // Parse pattern data for each row
-        const enhancedRows = rows.map(row => {
-            if (row.pattern_string) {
-                // Convert pattern string to array format
-                row.pattern = 'mondrian';
-                row.txList = row.pattern_string.split('').map(Number);
-                row.squareSizes = row.txList; // Backward compatibility
-                delete row.pattern_string; // Remove raw string
-            } else {
-                row.pattern = null;
-                row.txList = [];
-                row.squareSizes = [];
-            }
-            return row;
-        });
         
-        return res.json(enhancedRows);
+        return res.json(responseData);
     });
 });
 
-// Endpoint to search bitmaps with filters and exact counting
-router.get('/bitmaps/search', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { 
-        page = 1, 
-        limit = 20, 
-        search = '', 
-        sort = 'bitmap_number_desc',
-        min_bitmap,
-        max_bitmap,
-        min_block
-    } = req.query;
-    
-    const offset = (page - 1) * limit;
-    
-    // Build dynamic WHERE clause
-    let whereConditions = [];
-    let queryParams = [];
-    
-    // Search conditions
-    if (search) {
-        whereConditions.push(`(
-            b.bitmap_number LIKE ? OR 
-            b.inscription_id LIKE ? OR 
-            b.address LIKE ? OR 
-            CAST(b.block_height AS TEXT) LIKE ?
-        )`);
-        const searchPattern = `%${search}%`;
-        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
-    }
-    
-    // Filter conditions
-    if (min_bitmap) {
-        whereConditions.push('b.bitmap_number >= ?');
-        queryParams.push(parseInt(min_bitmap));
-    }
-    
-    if (max_bitmap) {
-        whereConditions.push('b.bitmap_number <= ?');
-        queryParams.push(parseInt(max_bitmap));
-    }
-    
-    if (min_block) {
-        whereConditions.push('b.block_height >= ?');
-        queryParams.push(parseInt(min_block));
-    }
-    
-    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
-    
-    // Build ORDER BY clause
-    let orderBy = 'ORDER BY b.bitmap_number DESC';
-    switch (sort) {
-        case 'bitmap_number_asc':
-            orderBy = 'ORDER BY b.bitmap_number ASC';
-            break;
-        case 'bitmap_number_desc':
-            orderBy = 'ORDER BY b.bitmap_number DESC';
-            break;
-        case 'block_height_asc':
-            orderBy = 'ORDER BY b.block_height ASC';
-            break;
-        case 'block_height_desc':
-            orderBy = 'ORDER BY b.block_height DESC';
-            break;
-        case 'timestamp_asc':
-            orderBy = 'ORDER BY b.timestamp ASC';
-            break;
-        case 'timestamp_desc':
-            orderBy = 'ORDER BY b.timestamp DESC';
-            break;
-    }
-    
-    // First, get total count
-    const countQuery = `
-        SELECT COUNT(*) as total
-        FROM bitmaps b
-        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
-        ${whereClause}
-    `;
-    
-    db.get(countQuery, queryParams, (err, countResult) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        
-        const totalCount = countResult.total;
-          // Then get the actual data with patterns
-        const dataQuery = `
-            SELECT 
-                b.*,
-                bp.pattern_string
-            FROM bitmaps b
-            LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
-            ${whereClause}
-            ${orderBy}
-            LIMIT ? OFFSET ?
-        `;
-        
-        const dataParams = [...queryParams, parseInt(limit), offset];
-        
-        db.all(dataQuery, dataParams, (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-              // Parse pattern data for each row
-            const enhancedRows = rows.map(row => {
-                if (row.pattern_string) {
-                    // Convert pattern string to array format
-                    row.pattern = 'mondrian';
-                    row.txList = row.pattern_string.split('').map(Number);
-                    row.squareSizes = row.txList; // Backward compatibility
-                    delete row.pattern_string; // Remove raw string
-                } else {
-                    row.pattern = null;
-                    row.txList = [];
-                    row.squareSizes = [];
-                }
-                return row;
-            });
-            
-            const hasMore = (offset + rows.length) < totalCount;
-            
-            return res.json({
-                bitmaps: enhancedRows,
-                total: totalCount,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                hasMore: hasMore,
-                totalPages: Math.ceil(totalCount / limit)
-            });
-        });
-    });
-});
-
-// Endpoint to get bitmap by sat number
-router.get('/bitmaps/sat/:sat_number', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const satNumber = req.params.sat_number;
-
-    db.get("SELECT * FROM bitmaps WHERE sat = ?", [satNumber], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Bitmap not found for this sat number" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get address history for an inscription
-router.get('/inscription/:inscription_id/address-history', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const inscriptionId = req.params.inscription_id;
-
-    db.all(`
-        SELECT 
-            ah.*,
-            ov.current_address as verified_current_address,
-            ov.confidence_score,
-            ov.last_verified
-        FROM address_history ah
-        LEFT JOIN ownership_verification ov ON ah.inscription_id = ov.inscription_id
-        WHERE ah.inscription_id = ?
-        ORDER BY ah.block_height DESC
-    `, [inscriptionId], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get current ownership verification for an inscription
-router.get('/inscription/:inscription_id/ownership', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const inscriptionId = req.params.inscription_id;
-
-    db.get(`
-        SELECT 
-            ov.*,
-            b.bitmap_number,
-            b.address as bitmap_address
-        FROM ownership_verification ov
-        JOIN bitmaps b ON ov.inscription_id = b.inscription_id
-        WHERE ov.inscription_id = ?
-    `, [inscriptionId], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "No ownership verification found for this inscription" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get all bitmaps with verified ownership for an address
-router.get('/address/:address/verified-bitmaps', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const address = req.params.address;
-    const { page = 1, limit = 20 } = req.query;
-    const offset = (page - 1) * limit;    const query = `
-        SELECT 
-            b.*,
-            ov.confidence_score,
-            ov.last_verified,
-            ov.verification_method,
-            bp.pattern_string
-        FROM bitmaps b
-        JOIN ownership_verification ov ON b.inscription_id = ov.inscription_id
-        LEFT JOIN bitmap_patterns bp ON b.bitmap_number = bp.bitmap_number
-        WHERE ov.current_address = ?
-        ORDER BY b.bitmap_number DESC
-        LIMIT ? OFFSET ?
-    `;
-
-    db.all(query, [address, limit, offset], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-          // Parse pattern data for each row
-        const enhancedRows = rows.map(row => {
-            if (row.pattern_string) {
-                // Convert pattern string to array format
-                row.pattern = 'mondrian';
-                row.txList = row.pattern_string.split('').map(Number);
-                delete row.pattern_string; // Remove raw string
-            } else {
-                row.pattern = null;
-                row.txList = [];
-            }
-            return row;
-        });
-        
-        return res.json(enhancedRows);
-    });
-});
-
-// ==================== PARCEL ENDPOINTS ====================
-
-// Endpoint to get all parcels with pagination and filtering
-router.get('/parcels', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { 
-        page = 1, 
-        limit = 20, 
-        search = '', 
-        sort = 'parcel_number_desc',
-        bitmap_number,
-        min_parcel,
-        max_parcel,
-        is_valid
-    } = req.query;
-    
-    const offset = (page - 1) * limit;
-    
-    // Build dynamic WHERE clause
-    let whereConditions = [];
-    let queryParams = [];
-    
-    // Search conditions
-    if (search) {
-        whereConditions.push(`(
-            p.parcel_number LIKE ? OR 
-            p.bitmap_number LIKE ? OR
-            p.inscription_id LIKE ? OR 
-            p.address LIKE ? OR 
-            CAST(p.block_height AS TEXT) LIKE ?
-        )`);
-        const searchPattern = `%${search}%`;
-        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
-    }
-    
-    // Filter conditions
-    if (bitmap_number) {
-        whereConditions.push('p.bitmap_number = ?');
-        queryParams.push(parseInt(bitmap_number));
-    }
-    
-    if (min_parcel) {
-        whereConditions.push('p.parcel_number >= ?');
-        queryParams.push(parseInt(min_parcel));
-    }
-    
-    if (max_parcel) {
-        whereConditions.push('p.parcel_number <= ?');
-        queryParams.push(parseInt(max_parcel));
-    }
-    
-    if (is_valid !== undefined) {
-        whereConditions.push('p.is_valid = ?');
-        queryParams.push(is_valid === 'true' ? 1 : 0);
-    }
-    
-    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
-    
-    // Build ORDER BY clause
-    let orderBy = 'ORDER BY p.parcel_number DESC';
-    switch (sort) {
-        case 'parcel_number_asc':
-            orderBy = 'ORDER BY p.parcel_number ASC';
-            break;
-        case 'parcel_number_desc':
-            orderBy = 'ORDER BY p.parcel_number DESC';
-            break;
-        case 'bitmap_number_asc':
-            orderBy = 'ORDER BY p.bitmap_number ASC';
-            break;
-        case 'bitmap_number_desc':
-            orderBy = 'ORDER BY p.bitmap_number DESC';
-            break;
-        case 'block_height_asc':
-            orderBy = 'ORDER BY p.block_height ASC';
-            break;
-        case 'block_height_desc':
-            orderBy = 'ORDER BY p.block_height DESC';
-            break;
-    }
-    
-    // First, get total count
-    const countQuery = `
-        SELECT COUNT(*) as total
-        FROM parcels p
-        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-        ${whereClause}
-    `;
-    
-    db.get(countQuery, queryParams, (err, countResult) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        
-        const totalCount = countResult.total;
-        
-        // Then get the actual data
-        const dataQuery = `
-            SELECT 
-                p.*,
-                b.bitmap_number as bitmap_bitmap_number,
-                b.content as bitmap_content,
-                b.address as bitmap_address
-            FROM parcels p
-            LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-            ${whereClause}
-            ${orderBy}
-            LIMIT ? OFFSET ?
-        `;
-        
-        const dataParams = [...queryParams, parseInt(limit), offset];
-        
-        db.all(dataQuery, dataParams, (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            
-            const hasMore = (offset + rows.length) < totalCount;
-            
-            return res.json({
-                parcels: rows,
-                total: totalCount,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                hasMore: hasMore,
-                totalPages: Math.ceil(totalCount / limit)
-            });
-        });
-    });
-});
-
-// Endpoint to get parcel by inscription ID
-router.get('/parcel/:inscription_id', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const inscriptionId = req.params.inscription_id;
-
-    db.get(`
-        SELECT 
-            p.*,
-            b.bitmap_number as bitmap_bitmap_number,
-            b.content as bitmap_content,
-            b.address as bitmap_address,
-            b.inscription_id as bitmap_inscription_id
-        FROM parcels p
-        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-        WHERE p.inscription_id = ?
-    `, [inscriptionId], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Parcel not found" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get parcels for a specific bitmap
-router.get('/bitmap/:bitmap_number/parcels', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const bitmapNumber = req.params.bitmap_number;
-    const { page = 1, limit = 20, sort = 'parcel_number_asc' } = req.query;
-    const offset = (page - 1) * limit;
-    
-    // Build ORDER BY clause
-    let orderBy = 'ORDER BY p.parcel_number ASC';
-    switch (sort) {
-        case 'parcel_number_asc':
-            orderBy = 'ORDER BY p.parcel_number ASC';
-            break;
-        case 'parcel_number_desc':
-            orderBy = 'ORDER BY p.parcel_number DESC';
-            break;
-        case 'block_height_asc':
-            orderBy = 'ORDER BY p.block_height ASC';
-            break;
-        case 'block_height_desc':
-            orderBy = 'ORDER BY p.block_height DESC';
-            break;
-    }
-
-    db.all(`
-        SELECT 
-            p.*,
-            b.bitmap_number as bitmap_bitmap_number,
-            b.content as bitmap_content,
-            b.address as bitmap_address
-        FROM parcels p
-        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-        WHERE p.bitmap_number = ?
-        ${orderBy}
-        LIMIT ? OFFSET ?
-    `, [bitmapNumber, limit, offset], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get parcels by address
-router.get('/address/:address/parcels', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const address = req.params.address;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate(`
-        SELECT 
-            p.*,
-            b.bitmap_number as bitmap_bitmap_number,
-            b.content as bitmap_content,
-            b.address as bitmap_address
-        FROM parcels p
-        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-        WHERE p.wallet = ? OR p.address = ?
-        ORDER BY p.parcel_number DESC
-    `, [address, address], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get parcel summary statistics
-router.get('/parcels/summary', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    db.get(`
-        SELECT 
-            COUNT(*) as total_parcels,
-            COUNT(DISTINCT bitmap_number) as unique_bitmaps_with_parcels,
-            COUNT(CASE WHEN is_valid = 1 THEN 1 END) as valid_parcels,
-            COUNT(CASE WHEN is_valid = 0 THEN 1 END) as invalid_parcels,
-            MIN(parcel_number) as min_parcel_number,
-            MAX(parcel_number) as max_parcel_number,
-            MIN(timestamp) as earliest_timestamp,
-            MAX(timestamp) as latest_timestamp
-        FROM parcels
-    `, (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to search parcels by parcel number across all bitmaps
-router.get('/parcels/number/:parcel_number', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const parcelNumber = req.params.parcel_number;
-    const { page = 1, limit = 20 } = req.query;
-
-    const paginatedQuery = paginate(`
-        SELECT 
-            p.*,
-            b.bitmap_number as bitmap_bitmap_number,
-            b.content as bitmap_content,
-            b.address as bitmap_address
-        FROM parcels p
-        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
-        WHERE p.parcel_number = ?
-        ORDER BY p.bitmap_number ASC
-    `, [parcelNumber], page, limit);
-
-    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// Endpoint to get address history for a parcel
-router.get('/parcel/:inscription_id/address-history', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const inscriptionId = req.params.inscription_id;
-
-    db.all(`
-        SELECT 
-            ah.*,
-            ov.current_address as verified_current_address,
-            ov.confidence_score,
-            ov.last_verified
-        FROM address_history ah
-        LEFT JOIN ownership_verification ov ON ah.inscription_id = ov.inscription_id
-        WHERE ah.inscription_id = ?
-        ORDER BY ah.block_height DESC
-    `, [inscriptionId], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        return res.json(rows);
-    });
-});
-
-// ==================== END PARCEL ENDPOINTS ====================
-
-// ==================== BLOCK STATISTICS ENDPOINTS ====================
-
-// Endpoint to get block statistics for a specific block
-router.get('/block/:block_height/stats', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const blockHeight = parseInt(req.params.block_height);
-    
-    if (isNaN(blockHeight) || blockHeight < 0) {
-        return res.status(400).json({ error: 'Invalid block height' });
-    }
-    
-    const query = `
-        SELECT 
-            block_height,
-            total_transactions,
-            total_inscriptions,
-            brc420_deploys,
-            brc420_mints,
-            bitmaps,
-            parcels,
-            processed_at
-        FROM block_stats
-        WHERE block_height = ?
-    `;
-    
-    db.get(query, [blockHeight], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (!row) {
-            return res.status(404).json({ error: "Block statistics not found" });
-        }
-        return res.json(row);
-    });
-});
-
-// Endpoint to get block statistics for a range of blocks
-router.get('/blocks/stats', (req, res) => {
-    if (!db) {
-        return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const { 
-        start_height, 
-        end_height, 
-        page = 1, 
-        limit = 100,
-        sort = 'block_height_desc'
-    } = req.query;
-    
-    const offset = (page - 1) * parseInt(limit);
-    let whereClause = '';
-    let queryParams = [];
-    
-    if (start_height && end_height) {
-        whereClause = 'WHERE block_height BETWEEN ? AND ?';
-        queryParams = [parseInt(start_height), parseInt(end_height)];
-    } else if (start_height) {
-        whereClause = 'WHERE block_height >= ?';
-        queryParams = [parseInt(start_height)];
-    } else if (end_height) {
-        whereClause = 'WHERE block_height <= ?';
-        queryParams = [parseInt(end_height)];
-    }
-    
-    let orderBy = 'ORDER BY block_height DESC';
-    if (sort === 'block_height_asc') {
-        orderBy = 'ORDER BY block_height ASC';
-    } else if (sort === 'total_transactions_desc') {
-        orderBy = 'ORDER BY total_transactions DESC';
-    } else if (sort === 'total_inscriptions_desc') {
-        orderBy = 'ORDER BY total_inscriptions DESC';
-    }
-    
-    // First get total count
-    const countQuery = `
-        SELECT COUNT(*) as total
-        FROM block_stats
-        ${whereClause}
-    `;
-    
-    db.get(countQuery, queryParams, (err, countResult) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        
-        const totalCount = countResult.total;
-        
-        // Get the actual data
-        const dataQuery = `
-            SELECT 
-                block_height,
-                total_transactions,
-                total_inscriptions,
-                brc420_deploys,
-                brc420_mints,
-                bitmaps,
-                parcels,
-                processed_at
-            FROM block_stats
-            ${whereClause}
-            ${orderBy}
-            LIMIT ? OFFSET ?
-        `;
-        
-        const dataParams = [...queryParams, parseInt(limit), offset];
-        
-        db.all(dataQuery, dataParams, (err, rows) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            
-            res.json({
-                total: totalCount,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                blocks: rows
-            });
-        });
-    });
-});
-
-// Endpoint to get summary statistics across all blocks
-router.get('/blocks/summary', (req, res) => {
+// Get bitmap summary statistics
+router.get('/bitmaps/summary', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
     const query = `
         SELECT 
-            COUNT(*) as total_blocks_processed,
-            MIN(block_height) as first_block,
-            MAX(block_height) as latest_block,
-            SUM(total_transactions) as total_transactions,
-            SUM(total_inscriptions) as total_inscriptions,
-            SUM(brc420_deploys) as total_brc420_deploys,
-            SUM(brc420_mints) as total_brc420_mints,
-            SUM(bitmaps) as total_bitmaps,
-            SUM(parcels) as total_parcels,
-            AVG(total_transactions) as avg_transactions_per_block,
-            AVG(total_inscriptions) as avg_inscriptions_per_block
-        FROM block_stats
-        WHERE total_transactions > 0
+            COUNT(*) as total_bitmaps,
+            MAX(bitmap_number) as highest_bitmap_number,
+            MIN(bitmap_number) as lowest_bitmap_number,
+            MAX(block_height) as latest_block_height,
+            MIN(block_height) as earliest_block_height,
+            COUNT(CASE WHEN sat_number IS NOT NULL THEN 1 END) as bitmaps_with_sat_numbers,
+            (SELECT COUNT(*) FROM bitmap_patterns) as bitmaps_with_patterns
+        FROM bitmaps
     `;
     
     db.get(query, [], (err, row) => {
@@ -1201,43 +497,266 @@ router.get('/blocks/summary', (req, res) => {
     });
 });
 
-// Endpoint to get blocks with high activity
-router.get('/blocks/high-activity', (req, res) => {
+// ==================== PARCEL ENDPOINTS ====================
+
+// Get all parcels
+router.get('/parcels', (req, res) => {
     if (!db) {
         return res.status(500).json({ error: 'Database not available' });
     }
     
-    const { metric = 'total_inscriptions', limit = 10 } = req.query;
+    const { 
+        page = 1, 
+        limit = 50, 
+        bitmap_number, 
+        search = '',
+        is_valid
+    } = req.query;
     
-    const validMetrics = ['total_transactions', 'total_inscriptions', 'brc420_deploys', 'brc420_mints', 'bitmaps', 'parcels'];
-    if (!validMetrics.includes(metric)) {
-        return res.status(400).json({ error: 'Invalid metric. Must be one of: ' + validMetrics.join(', ') });
+    let query = `
+        SELECT p.*, b.bitmap_number as parent_bitmap_number 
+        FROM parcels p 
+        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
+    `;
+    let params = [];
+    let whereConditions = [];
+    
+    if (bitmap_number) {
+        whereConditions.push("p.bitmap_number = ?");
+        params.push(parseInt(bitmap_number));
     }
     
-    const query = `
-        SELECT 
-            block_height,
-            total_transactions,
-            total_inscriptions,
-            brc420_deploys,
-            brc420_mints,
-            bitmaps,
-            parcels,
-            processed_at
-        FROM block_stats
-        WHERE ${metric} > 0
-        ORDER BY ${metric} DESC
-        LIMIT ?
-    `;
+    if (search) {
+        whereConditions.push("(p.inscription_id LIKE ? OR CAST(p.parcel_number AS TEXT) LIKE ?)");
+        params.push(`%${search}%`, `%${search}%`);
+    }
     
-    db.all(query, [parseInt(limit)], (err, rows) => {
+    if (is_valid !== undefined) {
+        whereConditions.push("p.is_valid = ?");
+        params.push(is_valid === 'true' ? 1 : 0);
+    }
+    
+    if (whereConditions.length > 0) {
+        query += " WHERE " + whereConditions.join(" AND ");
+    }
+    
+    query += " ORDER BY p.bitmap_number ASC, p.parcel_number ASC";
+    
+    const paginatedQuery = paginate(query, params, page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
-        return res.json(rows);
+        
+        res.json({
+            parcels: rows,
+            page: parseInt(page),
+            limit: parseInt(limit)
+        });
     });
 });
 
-// ==================== END BLOCK STATISTICS ENDPOINTS ====================
+// Get parcel by inscription ID
+router.get('/parcel/:inscription_id', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const inscriptionId = req.params.inscription_id;
+
+    const query = `
+        SELECT p.*, b.bitmap_number as parent_bitmap_number, b.inscription_id as parent_inscription_id
+        FROM parcels p 
+        LEFT JOIN bitmaps b ON p.bitmap_inscription_id = b.inscription_id
+        WHERE p.inscription_id = ?
+    `;
+
+    db.get(query, [inscriptionId], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Parcel not found" });
+        }
+        return res.json(row);
+    });
+});
+
+// ==================== PROCESSING STATUS ENDPOINTS ====================
+
+// Get processed blocks
+router.get('/blocks/processed', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { page = 1, limit = 100 } = req.query;
+    
+    const query = "SELECT * FROM processed_blocks ORDER BY block_height DESC";
+    const paginatedQuery = paginate(query, [], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({
+            blocks: rows,
+            page: parseInt(page),
+            limit: parseInt(limit)
+        });
+    });
+});
+
+// Get processing status for a specific block
+router.get('/block/:block_height/status', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const blockHeight = parseInt(req.params.block_height);
+    
+    if (isNaN(blockHeight)) {
+        return res.status(400).json({ error: 'Invalid block height' });
+    }
+
+    db.get("SELECT * FROM processed_blocks WHERE block_height = ?", [blockHeight], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: "Block not found or not yet processed" });
+        }
+        return res.json(row);
+    });
+});
+
+// Get failed inscriptions
+router.get('/failed-inscriptions', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { page = 1, limit = 50 } = req.query;
+    
+    const query = "SELECT * FROM failed_inscriptions ORDER BY created_at DESC";
+    const paginatedQuery = paginate(query, [], page, limit);
+
+    db.all(paginatedQuery.query, paginatedQuery.params, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({
+            failed_inscriptions: rows,
+            page: parseInt(page),
+            limit: parseInt(limit)
+        });
+    });
+});
+
+// Get indexer statistics
+router.get('/stats', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const queries = {
+        brc420_deploys: "SELECT COUNT(*) as count FROM brc420_deploys",
+        brc420_mints: "SELECT COUNT(*) as count FROM brc420_mints",
+        bitmaps: "SELECT COUNT(*) as count FROM bitmaps",
+        parcels: "SELECT COUNT(*) as count FROM parcels",
+        processed_blocks: "SELECT COUNT(*) as count FROM processed_blocks",
+        failed_inscriptions: "SELECT COUNT(*) as count FROM failed_inscriptions",
+        latest_block: "SELECT MAX(block_height) as latest FROM processed_blocks"
+    };
+    
+    const stats = {};
+    let completed = 0;
+    const total = Object.keys(queries).length;
+    
+    Object.entries(queries).forEach(([key, query]) => {
+        db.get(query, [], (err, row) => {
+            if (!err && row) {
+                stats[key] = row.count !== undefined ? row.count : row.latest;
+            } else {
+                stats[key] = 0;
+            }
+            
+            completed++;
+            if (completed === total) {
+                res.json({
+                    indexer_stats: stats,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        });
+    });
+});
+
+// ==================== SEARCH ENDPOINTS ====================
+
+// Global search across all inscription types
+router.get('/search', (req, res) => {
+    if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const { q: query, limit = 20 } = req.query;
+    
+    if (!query || query.trim().length === 0) {
+        return res.status(400).json({ error: 'Search query required' });
+    }
+    
+    const searchTerm = `%${query.trim()}%`;
+    const searchLimit = Math.min(parseInt(limit), 100);
+    
+    const searchQueries = [
+        {
+            type: 'brc420_deploy',
+            query: `SELECT 'brc420_deploy' as type, inscription_id, tick as identifier, block_height FROM brc420_deploys WHERE inscription_id LIKE ? OR tick LIKE ? LIMIT ?`,
+            params: [searchTerm, searchTerm, searchLimit]
+        },
+        {
+            type: 'brc420_mint',
+            query: `SELECT 'brc420_mint' as type, inscription_id, tick as identifier, block_height FROM brc420_mints WHERE inscription_id LIKE ? OR tick LIKE ? LIMIT ?`,
+            params: [searchTerm, searchTerm, searchLimit]
+        },
+        {
+            type: 'bitmap',
+            query: `SELECT 'bitmap' as type, inscription_id, CAST(bitmap_number AS TEXT) as identifier, block_height FROM bitmaps WHERE inscription_id LIKE ? OR CAST(bitmap_number AS TEXT) LIKE ? LIMIT ?`,
+            params: [searchTerm, searchTerm, searchLimit]
+        },
+        {
+            type: 'parcel',
+            query: `SELECT 'parcel' as type, inscription_id, CAST(parcel_number AS TEXT) || '.' || CAST(bitmap_number AS TEXT) as identifier, block_height FROM parcels WHERE inscription_id LIKE ? OR CAST(parcel_number AS TEXT) LIKE ? LIMIT ?`,
+            params: [searchTerm, searchTerm, searchLimit]
+        }
+    ];
+    
+    const results = [];
+    let completed = 0;
+    
+    searchQueries.forEach(({ type, query, params }) => {
+        db.all(query, params, (err, rows) => {
+            if (!err && rows) {
+                results.push(...rows);
+            }
+            
+            completed++;
+            if (completed === searchQueries.length) {
+                // Sort by block height descending
+                results.sort((a, b) => (b.block_height || 0) - (a.block_height || 0));
+                
+                res.json({
+                    query: query,
+                    results: results.slice(0, searchLimit),
+                    total_found: results.length
+                });
+            }
+        });
+    });
+});
 
 module.exports = router;
